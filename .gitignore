@@ -6,6 +6,9 @@ terraform.tfplan
 terraform.tfstate
 bin/
 dist/
+terraform-provider-release-private.asc
+terraform-provider-release-public.asc
+terraform-provider-release-revocation.asc
 modules-dev/
 /pkg/
 website/.vagrant

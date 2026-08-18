@@ -4,7 +4,7 @@ schema: 1.1
 partition: tf-ecosystem
 
 summary:
-  owner: team-tf-core-plugins
+  owner: hans-m-song
   description: |
-    Quick start repository for creating a Terraform provider using terraform-plugin-framework
+    Terraform provider for focused AWS capabilities not available in the HashiCorp AWS or AWS Cloud Control providers
   visibility: public
