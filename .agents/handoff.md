@@ -79,3 +79,4 @@ Remaining choices are governed by explicit rules rather than owner questions:
 - Independent tester verification passed with no release blockers.
 - No real AWS calls were made.
 - Final parent verification passed unit tests, focused race tests, build, lint, GoReleaser configuration, and two consecutive Terraform 1.14.0 documentation generations. Independent verification repeated all gates except the second generation, which was stopped after the parent had already established reproducibility.
+- On 2026-08-19, CI exposed that `terraform fmt` still requires Terraform on PATH. Both CI generation paths now install Terraform 1.14.0 explicitly; local generation and workflow parsing passed after the correction.

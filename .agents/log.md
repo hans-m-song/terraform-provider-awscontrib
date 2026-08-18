@@ -128,3 +128,9 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - The owner reports that GitHub Actions secrets for the private key and passphrase are configured and the corresponding public key is registered with the Terraform Registry.
 - Secret values and the local GPG keyring were not inspected. End-to-end signing remains unverified until a release workflow produces a detached checksum signature.
 - Exported PGP files were detected as untracked files in the repository directory. Their exact names are ignored to prevent accidental staging; the files were not read or deleted and must be moved to secure storage or removed by the owner.
+
+## 2026-08-19 — CI generation dependency correction
+
+- The CI generation job failed because `make generate` invokes `terraform fmt` before tfplugindocs, while Terraform CLI setup had been removed after pinning tfplugindocs' separate schema-export subprocess.
+- Restored `hashicorp/setup-terraform` with Terraform CLI 1.14.0 in both the test workflow generation job and the release workflow verification job.
+- Retained tfplugindocs' independent `--tf-version 1.14.0` pin. Local generation and workflow YAML parsing passed after the correction.
