@@ -33,6 +33,14 @@ Do not place credentials in Terraform configuration. Configure credentials throu
 ## Resources
 
 - [`awscontrib_connect_queue_quick_connect_associations`](docs/resources/connect_queue_quick_connect_associations.md)
+- [`awscontrib_connect_hours_of_operation_override`](docs/resources/connect_hours_of_operation_override.md)
+- [`awscontrib_connect_data_table`](docs/resources/connect_data_table.md)
+- [`awscontrib_connect_data_table_record`](docs/resources/connect_data_table_record.md)
+
+## Data sources
+
+- [`awscontrib_connect_phone_number`](docs/data-sources/connect_phone_number.md)
+- [`awscontrib_connect_contact_flow_module`](docs/data-sources/connect_contact_flow_module.md)
 
 ## Development
 

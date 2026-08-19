@@ -4,89 +4,61 @@
 
 2026-08-19, Australia/Brisbane.
 
-## Objective
+## Objective and outcome
 
-The provider bootstrap, plural Amazon Connect queue/quick-connect associations resource, and repository-controlled initial release-readiness milestone `M3` are complete. Plural quick-connect discovery remains proposed as milestone `M2`.
+Milestones `M4`, `M5`, and `M6` are implemented and fixture-free verified. The provider now registers four Amazon Connect resources and two exact-match data sources. Plural quick-connect discovery remains separately proposed as `M2`.
 
-## Completed this session
+## Registered public surfaces
 
-- Inspected the scaffold's provider registration, examples, tests, generation, CI, and release configuration.
-- Researched current Terraform Plugin Framework guidance, Amazon Connect APIs, `terraform-provider-aws`, and `terraform-provider-awscc`.
-- Corrected the initial domain model from routing-profile/quick-connect association to queue/quick-connect association; the resource is now approved for implementation.
-- Established initial project guidance, architecture boundaries, roadmap, and durable decision records.
-- Canonicalized publication identity, compatibility baselines, AWS profile support, list-only filtering, deterministic output, and fixture-free verification decisions.
-- Implemented direct AWS SDK for Go v2 configuration with optional profile and region.
-- Implemented the association resource, composite import, paginated drift detection, queue-scoped mutation serialization, and bounded reconciliation.
-- Removed executable scaffold surfaces and regenerated provider/resource documentation.
-- Completed independent race, unit, build, lint, and generation verification without real AWS calls.
-- Corrected release ownership metadata, fixture-free CI, changelog, installation examples, and tag-triggered release gates.
-- Pinned documentation schema export to Terraform CLI 1.14.0 after isolating a tfplugindocs 0.25.0 failure with Terraform CLI 1.15.8.
-- Preserved verified MPL-2.0, HashiCorp, and IBM notices while removing stale HashiCorp-managed workflows and policy references.
-- Replaced the unpublished one-edge association resource with a plural additive-subset resource after a real run exposed HTTP 429 throttling under per-edge request fan-out.
-- Added unordered `quick_connect_ids` set ownership, 50-ID request chunking without a total-set cap, partial-drift repair, unrelated-association preservation, and colon/comma composite import with UUID validation.
-- Deliberately left provider retry configuration unchanged at the owner's direction; only `profile` and `region` remain provider arguments.
-- Fixed planning for same-apply quick-connect references by preserving unknown set elements as Framework string values during validation; null and known-invalid values remain rejected.
+Resources:
 
-## Current repository state
+- `awscontrib_connect_queue_quick_connect_associations`
+- `awscontrib_connect_hours_of_operation_override`
+- `awscontrib_connect_data_table`
+- `awscontrib_connect_data_table_record`
 
-- Module: `github.com/hans-m-song/terraform-provider-awscontrib`.
-- Provider: `registry.terraform.io/hans-m-song/awscontrib`, type `awscontrib`.
-- Go baseline: 1.26; Terraform protocol 6 and Terraform 1.0+.
-- AWS SDK for Go v2 uses the standard configuration chain with optional `profile` and `region`.
-- Registered resource: `awscontrib_connect_queue_quick_connect_associations`.
-- No data sources, actions, functions, or ephemeral resources are registered.
-- Generated documentation and examples match the implemented provider schema.
+Data sources:
 
-## Decisions
+- `awscontrib_connect_phone_number`
+- `awscontrib_connect_contact_flow_module`
 
-The owner resolved the major public-contract decisions:
+## Completed work
 
-- publish as `registry.terraform.io/hans-m-song/awscontrib` with module `github.com/hans-m-song/terraform-provider-awscontrib`;
-- Terraform 1.0+ and Go 1.26 baseline;
-- standard AWS shared INI behavior plus explicit profile selection;
-- plural list output sorted by quick-connect ID;
-- item `id` is required and other summary attributes are optional enhancements;
-- `ListQuickConnects` only, with exposed API filters and name filtering;
-- no stable real-AWS fixtures.
-- the associations resource owns only its declared subset; overlapping ownership of the same edge is unsupported;
-- association import is `instance_id:queue_id:quick_connect_id[,quick_connect_id...]`, with UUID-only components and duplicate rejection;
-- no provider `max_retries` or `retry_mode` arguments are added; batching is the selected throttling mitigation.
+- Made `quick_connect_ids` mutable in place. Update removes previously owned IDs absent from the plan, then adds missing planned IDs under the queue-scoped coordinator. Requests remain batched at 50 and unrelated associations are preserved.
+- Added exact phone-number lookup through fully paginated `ListPhoneNumbersV2`, a conservative 11-character server prefix, and full-number client-side equality.
+- Added exact contact-flow-module lookup through paginated `SearchContactFlowModules` and client-side exact name matching.
+- Added standalone hours-of-operation override CRUD/import. Optional `time_windows` use required day and `HH:MM` opening/closing strings; omission is a canonical empty set for full-day `STANDARD` or `CLOSED` overrides. Description and recurrence removal replace the override because AWS cannot clear those fields in place.
+- Added a combined data-table resource owning table metadata, the complete set of attributes represented by its schema, and explicit DEFAULT values created with `PrimaryValues` omitted.
+- Added an authoritative non-default record resource with canonical composite primary maps, complete remote-cell drift discovery, current value locks, and no import.
+- Registered table and record constructors through one shared `{instance_id, data_table_id}` coordinator factory.
+- Added examples and generated reference documentation for all new surfaces; README and changelog link/catalog entries are updated.
 
-Remaining choices are governed by explicit rules rather than owner questions:
+## Deliberate limitations
 
-- choose the most well-supported maintained AWS integration at implementation time, preferring stable AWS SDK for Go v2 APIs;
-- use required `instance_id`, optional `name`, optional enum-validated set `quick_connect_types`, and computed list nested attribute `quick_connects`;
-- sort results by quick-connect ID, omit a synthetic top-level ID, and expose every summary field returned by `ListQuickConnects`.
-
-## Next actions
-
-1. Move or delete the ignored local PGP export files from the repository directory; never commit them.
-2. Review and commit the plural association source, tests, examples, and generated documentation changes.
-3. Authorize creation and push of `v0.1.0` only after reviewing the final diff; the tag triggers signing and GitHub release publication.
-4. Verify the generated GitHub release contains the manifest, archives, checksum file, and detached checksum signature before registering or resynchronizing the provider.
-5. If desired, plan milestone `M2` for plural quick-connect discovery separately.
-
-## Risks
-
-- Queue mutation serialization applies only within one provider process.
-- Multiple Terraform states must not manage the same association edge.
-- Multiple resources in one state must also avoid overlapping ownership of the same association edge.
-- AWS does not document isolation for simultaneous queue association mutations from separate callers.
-- The 2.5-second reconciliation window may need adjustment after real-AWS evidence.
-- There are no stable real-AWS fixtures; current confidence comes from deterministic fake-client and Framework tests.
-- End-to-end checksum signing is not verified until the GitHub release workflow runs.
-- Documentation generation depends on the pinned Terraform CLI 1.14.0 until tfplugindocs compatibility with Terraform CLI 1.15 is demonstrated.
+- No real AWS fixture or acceptance result exists. All current evidence is mocked, Framework, race, build, lint, and generation verification.
+- Table tags and attribute validation rules are not represented. Post-create tag support is undocumented for data tables, and multiple validation false/zero removals cannot be serialized reliably by the pinned SDK.
+- Data-table status accepts only `PUBLISHED`; `SAVED` remains contradictory in AWS prose versus the pinned SDK enum and official valid-values section.
+- Changing a table attribute from primary to non-primary replaces the table because the SDK cannot serialize `Primary:false`. Attribute map-key renames are delete/create and can remove values.
+- The record resource has no import because an identifier cannot reconstruct authoritative value ownership.
+- Queue/table coordinators are provider-process-local; they do not serialize separate Terraform processes or states.
 
 ## Verification state
 
-- Focused `go test -race` passed for Connect, connections, and provider packages.
-- `go test ./...` and `go build ./...` passed.
-- `make lint` passed with zero issues.
-- `make generate` passed twice; generated provider/resource pages are reproducible.
-- `git diff --check` and formatting checks passed.
-- Independent tester verification passed with no release blockers.
-- No real AWS calls were made.
-- Final parent verification passed unit tests, focused race tests, build, lint, GoReleaser configuration, and two consecutive Terraform 1.14.0 documentation generations. Independent verification repeated all gates except the second generation, which was stopped after the parent had already established reproducibility.
-- On 2026-08-19, CI exposed that `terraform fmt` still requires Terraform on PATH. Both CI generation paths now install Terraform 1.14.0 explicitly; local generation and workflow parsing passed after the correction.
-- M1-T05 verification passed full unit tests, focused race tests, build, lint, generated-document checks, and independent review. Associate and disassociate paths both cover 51-ID chunking into 50/1 requests. No real AWS calls were made during this change.
-- M1-T06 verification passed full unit tests, focused race tests, build, and parent lint with zero issues. Independent verification confirmed the unknown-value behavior and all tests but encountered an isolated lint-tool context-loading failure. No AWS calls were made.
+Parent verification passed:
+
+- `make test` with Connect coverage 81.0% and provider coverage 95.7%;
+- focused race tests for Connect, connections, and provider packages;
+- `go build ./...`;
+- `make lint` with zero issues;
+- two consecutive `make generate` runs using pinned Terraform CLI 1.14.0;
+- `git diff --check` and example formatting.
+
+Independent verification passed all feature-level tests and race checks. Its default-cache lint/generation attempts were environment-limited; parent escalated runs completed the genuine gates. No AWS calls were made.
+
+## Working tree and next actions
+
+- The M4–M6 source, tests, examples, generated references, and maintained documentation are intentionally uncommitted for owner review.
+- `internal/service/connect/handler.js` is an unrelated owner file. It was never read or modified and must not be staged without explicit owner direction.
+- Review the diff, then commit only the intended provider files while excluding `handler.js`.
+- If release publication is desired, rerun the existing signed release checklist after commit/tag authorization.
+- If feature work continues, `M2` plural quick-connect discovery remains the next proposed milestone.

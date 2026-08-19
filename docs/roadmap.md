@@ -240,6 +240,206 @@ Status: Complete.
 - Blockers: none after dependencies.
 - Parallel boundaries: unsigned packaging may run after source and documentation generation are stable.
 
+## M4 — Connect lifecycle and exact lookups
+
+Goal: support in-place queue association changes and exact lookup of Connect phone numbers and contact-flow modules.
+
+Status: Complete.
+
+### M4-T01 — Freeze in-place association reconciliation
+
+- Status: Complete.
+- Goal: change `quick_connect_ids` without replacing the Terraform resource.
+- Scope: prior-state, planned-state, and complete remote-membership reconciliation under the existing queue coordinator.
+- Constraints: preserve unrelated remote associations; retain replacement for `instance_id` and `queue_id`; batch requests in groups of at most 50; do not claim transactional or cross-process behavior.
+- Acceptance criteria: additions are `planned - remote`; removals are `(prior - planned) intersect remote`; removed owned IDs are disassociated, unchanged IDs are untouched, and unrelated IDs remain associated. A failed batch returns a diagnostic without writing planned state; a later refresh exposes any partial remote completion.
+- Roles: main agent, executor, tester.
+- Dependencies: `M1-T06`.
+- Verification gates: schema tests, differential lifecycle tests, batching tests, partial-failure tests, focused race tests, full unit suite, build, and lint.
+- Blockers: none.
+- Parallel boundaries: implementation and its fake-client tests are one ownership unit.
+
+### M4-T02 — Implement in-place association updates
+
+- Status: Complete.
+- Goal: implement the `M4-T01` contract.
+- Scope: remove replacement semantics from `quick_connect_ids`, add `Update`, and retain unknown-value behavior during planning.
+- Constraints: no provider retry or mode settings; no real AWS calls.
+- Acceptance criteria: plans can add and remove IDs in place, update reconciliation is idempotent, and existing create/read/delete/import behavior remains compatible.
+- Roles: executor, tester, main agent.
+- Dependencies: `M4-T01`.
+- Verification gates: focused and full tests, race tests, build, lint, and generated documentation review.
+- Blockers: none.
+- Parallel boundaries: lookup data-source implementation may proceed independently after shared client interfaces are coordinated.
+
+### M4-T03 — Implement exact phone-number lookup
+
+- Status: Complete.
+- Goal: add `awscontrib_connect_phone_number`, selected by a full phone number.
+- Scope: required `instance_id` and E.164 `phone_number`; computed remote ID and summary attributes returned by `ListPhoneNumbersV2`.
+- Constraints: use the API prefix only to reduce candidates, then require exact equality client-side after complete pagination; the API prefix length limit means a longer configured number must use a safe prefix no longer than the documented maximum; do not select an ambiguous result.
+- Acceptance criteria: zero exact matches produce a not-found diagnostic, multiple exact matches produce an ambiguity diagnostic, one exact match populates deterministic state, and pagination and AWS errors are tested.
+- Roles: executor, tester, main agent.
+- Dependencies: `M0-T02`, `M0-T03`.
+- Verification gates: narrow-client unit tests, Framework schema/configuration tests, full unit suite, build, and lint.
+- Blockers: none.
+- Parallel boundaries: independent from association reconciliation except for provider registration and the Connect client factory.
+
+### M4-T04 — Implement exact contact-flow-module lookup
+
+- Status: Complete.
+- Goal: add `awscontrib_connect_contact_flow_module`, selected by exact name.
+- Scope: required `instance_id` and `name`; computed fields available from the selected module returned by the current AWS API.
+- Constraints: paginate the selected search/list operation completely and enforce exact client-side equality; do not add the already-available contact-flow lookup.
+- Acceptance criteria: zero and multiple exact matches produce diagnostics, one exact match populates state, and pagination, mapping, nil configuration, and AWS errors are tested.
+- Roles: executor, tester, main agent.
+- Dependencies: `M0-T02`, `M0-T03`.
+- Verification gates: narrow-client unit tests, Framework tests, full unit suite, build, and lint.
+- Blockers: exact schema fields must be checked against the pinned AWS SDK before implementation.
+- Parallel boundaries: independent from phone-number lookup after provider registration changes are coordinated.
+
+### M4-T05 — Document and verify lifecycle and lookups
+
+- Status: Complete.
+- Goal: publish examples and reproducible generated reference documentation for `M4`.
+- Scope: examples, schema descriptions, generated docs, maintained architecture documentation, and fixture-free verification.
+- Constraints: generated reference pages are not hand-edited; no credentials, personal identifiers, real fixtures, or real AWS calls.
+- Acceptance criteria: all `M4` behavior is documented and two consecutive generations are clean.
+- Roles: scribe, tester, main agent.
+- Dependencies: `M4-T02`, `M4-T03`, `M4-T04`.
+- Verification gates: format, full tests, focused race tests, build, lint, two generations, and diff audit.
+- Blockers: none after implementation.
+- Parallel boundaries: example authoring may begin from frozen schemas; generation is serialized after provider registration.
+
+## M5 — Hours-of-operation overrides
+
+Goal: manage an Amazon Connect hours-of-operation override as a standalone Terraform resource so removed attributes are reconciled explicitly.
+
+Status: Complete.
+
+### M5-T01 — Freeze the override contract
+
+- Status: Complete.
+- Goal: define the schema and conditional semantics for dates, type, configuration, and recurrence from current AWS API evidence.
+- Scope: standalone identity, CRUD, import, absence behavior, ordering, and validation.
+- Constraints: do not invent undocumented conditional rules or canonical ordering; do not copy AWSCC optional/computed removal behavior.
+- Acceptance criteria: the contract identifies every mutable field, distinguishes omitted from empty values where the API does, and specifies an unambiguous `instance_id:hours_of_operation_id:override_id` import.
+- Roles: architect, explorer, main agent.
+- Dependencies: `M0`.
+- Verification gates: current AWS API and pinned SDK type audit.
+- Blockers: none. The API can explicitly clear `config` with an empty list but cannot explicitly clear `description` or recurrence. Removing either optional field therefore requires replacement; value changes remain mutable.
+- Parallel boundaries: fake fixtures may be drafted after the contract is frozen.
+
+### M5-T02 — Implement override CRUD and import
+
+- Status: Complete.
+- Goal: implement create, describe/read, update, delete, and import through a narrow Connect interface.
+- Scope: resource schema, API mapping, registration, not-found handling, and complete planned-value updates.
+- Constraints: no provider-local lock unless evidence shows shared mutable parent state; no real AWS calls.
+- Acceptance criteria: removals are sent explicitly where supported, read removes absent state, delete tolerates absence, and import hydrates all identity fields.
+- Roles: executor, main agent.
+- Dependencies: `M5-T01`.
+- Verification gates: focused unit and Framework tests.
+- Blockers: none.
+- Parallel boundaries: examples may proceed only after schema compilation.
+
+### M5-T03 — Verify and document overrides
+
+- Status: Complete.
+- Goal: establish fixture-free lifecycle confidence and publish accurate documentation.
+- Scope: boundary validation, mapping, update/removal, not-found, import, examples, generated docs, and maintained docs.
+- Constraints: real AWS verification remains supplementary and separately authorized.
+- Acceptance criteria: focused and full tests, build, lint, and two clean generations pass.
+- Roles: tester, scribe, main agent.
+- Dependencies: `M5-T02`.
+- Verification gates: repository standard verification sequence.
+- Blockers: none after implementation.
+- Parallel boundaries: documentation and independent testing may proceed after the implementation checkpoint.
+
+### M5-T04 — Improve time-window configuration
+
+- Status: Complete.
+- Goal: replace the API-shaped schedule input with concise Terraform time windows before publication.
+- Scope: rename `config` to `time_windows`; replace nested hour/minute objects with validated `opens` and `closes` strings in `HH:MM` format; make the set optional with a canonical empty default.
+- Constraints: `day` remains required and is never inferred; omission and an explicit empty set are equivalent; AWS create/update requests always receive a non-nil configuration slice; do not impose ordering or overlap rules not established by AWS.
+- Acceptance criteria: `CLOSED` and `STANDARD` accept no windows and send `Config: []`; `OPEN` requires at least one window; removing the final window sends an explicit empty update; read maps an empty remote configuration to the canonical empty set; all time boundaries from `00:00` through `23:59` round-trip.
+- Roles: executor, tester, scribe, main agent.
+- Dependencies: `M5-T03`.
+- Verification gates: schema implementation validation, mapping and lifecycle unit tests, focused race tests, full tests, build, lint, and two clean documentation generations.
+- Blockers: none.
+- Parallel boundaries: implementation owns the hours resource/test pair; examples and generated documentation follow the compiled schema.
+
+## M6 — Connect data tables
+
+Goal: manage data-table metadata, its complete provider-managed attribute set and explicit DEFAULT values together, plus non-default records with composite primary keys.
+
+Status: Complete.
+
+### M6-T01 — Freeze table ownership and schema
+
+- Status: Complete.
+- Goal: define authoritative ownership for table metadata, attributes, and explicit DEFAULT values.
+- Scope: combined `awscontrib_connect_data_table` schema, lifecycle ordering, import, lock versions, and partial batch failures.
+- Constraints: attributes are keyed by name for stable Terraform addressing; removal deletes the remote attribute; lock versions are computed operational tokens; no automatic rollback after partial success.
+- Acceptance criteria: `attributes` and `default_values` have deterministic map semantics; omitted `PrimaryValues` creates the concrete AWS `RecordId` `DEFAULT`; absence from `default_values` means no stored default even if the console renders an implicit empty default row; import adopts the complete remote schema/default set.
+- Roles: architect, explorer, main agent.
+- Dependencies: `M0`.
+- Verification gates: current AWS API and pinned SDK audit plus the owner's 2026-08-19 CLI observations recorded in the architecture log.
+- Blockers: none for the initial schema. `status` exposes only the verified `PUBLISHED` value and is replacement-only; tags and attribute validation are deferred because their update/removal behavior is not representable reliably through the pinned SDK. Changing an attribute from primary to non-primary requires table replacement because the SDK serializer cannot send `Primary:false`.
+- Parallel boundaries: record implementation waits for this contract.
+
+### M6-T02 — Implement table, attributes, and DEFAULT lifecycle
+
+- Status: Complete.
+- Goal: implement the combined table resource and explicit deletion of removed attributes and defaults.
+- Scope: table CRUD, attribute create/update/delete, DEFAULT create/update/delete with `PrimaryValues` omitted, registration, import, and refresh.
+- Constraints: primary attributes are created before dependent values; removed attributes are deleted last; every paginated read is exhausted; nonempty batch `Failed` results are errors even on HTTP 200.
+- Acceptance criteria: create and update converge metadata/schema/defaults, read reconstructs authoritative state, delete tolerates absence, and partial completion remains recoverable by refresh and reapply.
+- Roles: executor, main agent.
+- Dependencies: `M6-T01`.
+- Verification gates: narrow-client lifecycle tests, pagination tests, Framework tests, and build.
+- Blockers: `M6-T01`.
+- Parallel boundaries: shared table coordination may be implemented with this task; record work starts after its interface is stable.
+
+### M6-T03 — Freeze non-default record ownership
+
+- Status: Complete.
+- Goal: define `awscontrib_connect_data_table_record` for nonempty, possibly composite primary keys.
+- Scope: canonical primary-key map, authoritative non-primary value map, computed record ID, update/delete semantics, and import decision.
+- Constraints: ordinary records may not use the DEFAULT sentinel; primary-value slices are sorted lexicographically by attribute name; removing a managed value deletes the remote cell; overlapping cell ownership is unsupported.
+- Acceptance criteria: the full remote record value set is discovered during read so out-of-band values appear as drift; primary-key changes are replacement-only for the initial contract; import is omitted unless ownership can be reconstructed unambiguously.
+- Roles: architect, explorer, main agent.
+- Dependencies: `M6-T01`.
+- Verification gates: current AWS API and pinned SDK type audit.
+- Blockers: none. Read resolves the record ID from paginated primary values, then loads the complete remote record by that ID. Primary-key changes are replacement-only and import is omitted because the value ownership set cannot be reconstructed from an identifier alone.
+- Parallel boundaries: implementation follows the stable combined-table client/locking boundary.
+
+### M6-T04 — Implement composite data-table records
+
+- Status: Complete.
+- Goal: implement non-default record create/read/update/delete with composite primary keys.
+- Scope: canonical API conversion, authoritative value reconciliation, shared table-key coordination, computed record ID, and diagnostics for mixed batch results.
+- Constraints: `primary_values` must be nonempty; `values` must be nonempty; no DEFAULT record ownership; no delimiter-based composite identity.
+- Acceptance criteria: composite keys are stable regardless of Terraform map order, removed values are deleted explicitly, external values surface as drift, concurrent same-table mutations serialize within one provider process, and partial batch results are actionable.
+- Roles: executor, tester, main agent.
+- Dependencies: `M6-T02`, `M6-T03`.
+- Verification gates: exhaustive mocked lifecycle, pagination, lock, batch-failure, unknown-value, and race tests.
+- Blockers: preceding contracts.
+- Parallel boundaries: documentation may proceed from the compiled schema; final verification is serialized.
+
+### M6-T05 — Document and verify data tables
+
+- Status: Complete.
+- Goal: publish examples and complete fixture-free verification for both data-table resources.
+- Scope: explicit defaults, composite keys, destructive attribute ownership warning, generated docs, maintained docs, and full verification.
+- Constraints: no hand-edited generated pages and no claim of real-service acceptance coverage.
+- Acceptance criteria: examples demonstrate DEFAULT and composite-record use; full tests, focused race tests, build, lint, and two clean generations pass.
+- Roles: scribe, tester, main agent.
+- Dependencies: `M6-T02`, `M6-T04`.
+- Verification gates: repository standard verification sequence plus final diff audit.
+- Blockers: none after implementation.
+- Parallel boundaries: independent testing and maintained documentation may proceed after source completion.
+
 ## Deferred
 
 - Actions, functions, and ephemeral resources remain out of scope unless a future milestone establishes a concrete use case.

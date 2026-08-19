@@ -15,9 +15,10 @@ import (
 var _ provider.Provider = &AWSContribProvider{}
 
 type AWSContribProvider struct {
-	version              string
-	loadClient           func(context.Context, conns.Config) (*conns.Client, error)
-	resourceConstructors []func() resource.Resource
+	version                string
+	loadClient             func(context.Context, conns.Config) (*conns.Client, error)
+	resourceConstructors   []func() resource.Resource
+	dataSourceConstructors []func() datasource.DataSource
 }
 
 type AWSContribProviderModel struct {
@@ -76,16 +77,25 @@ func (p *AWSContribProvider) Resources(context.Context) []func() resource.Resour
 }
 
 func (p *AWSContribProvider) DataSources(context.Context) []func() datasource.DataSource {
-	return nil
+	return p.dataSourceConstructors
 }
 
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
+		dataTableResourceFactory, dataTableRecordResourceFactory := connectservice.DataTableResourceFactories()
+
 		return &AWSContribProvider{
 			version:    version,
 			loadClient: conns.New,
 			resourceConstructors: []func() resource.Resource{
 				connectservice.QueueQuickConnectAssociationsResourceFactory(),
+				connectservice.HoursOfOperationOverrideResourceFactory(),
+				dataTableResourceFactory,
+				dataTableRecordResourceFactory,
+			},
+			dataSourceConstructors: []func() datasource.DataSource{
+				connectservice.PhoneNumberDataSourceFactory(),
+				connectservice.ContactFlowModuleDataSourceFactory(),
 			},
 		}
 	}

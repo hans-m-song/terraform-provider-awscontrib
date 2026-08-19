@@ -8,7 +8,7 @@
 ├── internal/
 │   ├── provider/                   provider schema, configuration, registration
 │   ├── conns/                      AWS SDK configuration and client factory
-│   └── service/connect/            association resource, coordinator, tests
+│   └── service/connect/            Connect resources, data sources, coordinators, tests
 ├── examples/                       tfplugindocs example inputs
 ├── docs/                           generated references plus project docs
 ├── tools/                          separate module for generation tools
@@ -18,11 +18,11 @@
 └── terraform-registry-manifest.json
 ```
 
-The implemented packages follow the provider, connection, and service boundaries below. The plural discovery files shown in the target layout remain planned rather than implemented.
+The implemented packages follow the provider, connection, and service boundaries below. Plural quick-connect discovery remains planned separately as milestone `M2`.
 
 ## Implemented and planned layout
 
-The association paths are implemented; paths marked `planned M2` are not:
+Registered lifecycle and lookup paths are implemented; the path marked `planned M2` is not:
 
 ```text
 .
@@ -42,7 +42,13 @@ The association paths are implemented; paths marked `planned M2` are not:
 │           ├── queue_quick_connect_associations_resource.go
 │           ├── queue_quick_connect_associations_resource_test.go
 │           ├── quick_connects_data_source.go       planned M2
-│           └── quick_connects_data_source_test.go  planned M2
+│           ├── phone_number_data_source.go
+│           ├── contact_flow_module_data_source.go
+│           ├── hours_of_operation_override_resource.go
+│           ├── data_table_coordinator.go
+│           ├── data_table_resource.go
+│           ├── data_table_record_resource.go
+│           └── *_test.go
 ├── examples/
 │   ├── provider/provider.tf
 │   ├── data-sources/
@@ -59,7 +65,7 @@ The association paths are implemented; paths marked `planned M2` are not:
     └── handoff.md                  session continuity
 ```
 
-Provider and association resource names are implemented. Only the milestone `M2` discovery paths remain provisional until that implementation begins.
+Provider, lifecycle-resource, and exact-lookup names are implemented. Only the milestone `M2` discovery path remains provisional until that implementation begins.
 
 ## Dependency boundaries
 
@@ -87,6 +93,18 @@ Amazon Connect API
 | `service/connect` | schemas, API requests, pagination, mapping, diagnostics, tests | provider-wide configuration or other AWS services |
 | `examples` | executable practitioner configurations used by documentation generation | generated prose |
 | generated `docs/*` reference directories | generated provider reference output | hand-maintained design decisions |
+
+Within `service/connect`, use narrow client interfaces per capability. Queue association mutations share a queue-keyed coordinator. Data-table, attribute, DEFAULT-value, and record mutations will share a separate `{instance_id, data_table_id}` coordinator because those operations consume lock versions from the same mutable table boundary. Lookup data sources and independently identified hours overrides do not require those locks.
+
+```text
+queue coordinator key: instance + queue
+  └── queue quick-connect associations
+
+table coordinator key: instance + data table
+  ├── table metadata and attributes
+  ├── DEFAULT values
+  └── non-default record values
+```
 
 Service packages must not import `internal/provider` or sibling services. Shared packages require more than one demonstrated consumer.
 

@@ -4,19 +4,21 @@
 
 `terraform-provider-awscontrib` is planned as a focused provider for miscellaneous AWS capabilities that are absent from the HashiCorp AWS and AWS Cloud Control providers. Its publication address is `registry.terraform.io/hans-m-song/awscontrib`, its Terraform type name is `awscontrib`, and its Go module is `github.com/hans-m-song/terraform-provider-awscontrib`.
 
-The first implemented feature is an Amazon Connect queue/quick-connect association resource. A plural quick-connect discovery data source remains planned as a secondary feature.
+The first implemented feature is an Amazon Connect queue/quick-connect association resource. Planned work adds in-place association reconciliation, exact phone-number and contact-flow-module lookups, standalone hours-of-operation overrides, and direct data-table lifecycle management. A plural quick-connect discovery data source remains a separate proposed milestone.
 
 ## Current state
 
-As of 2026-08-19, the provider bootstrap and first resource are implemented:
+As of 2026-08-19, the provider bootstrap and the approved Amazon Connect lifecycle expansion are implemented:
 
 - the Go module is `github.com/hans-m-song/terraform-provider-awscontrib`;
 - the provider type is `awscontrib` and server address is `registry.terraform.io/hans-m-song/awscontrib`;
 - provider configuration uses AWS SDK for Go v2 with optional `profile` and `region`;
 - `internal/conns` owns AWS configuration and client construction;
-- `internal/service/connect` owns the queue/quick-connect association implementation;
+- `internal/service/connect` owns four resources and two exact-match data sources;
 - scaffold resources, data sources, actions, functions, and ephemeral resources have been removed;
-- the maintained examples define the plural association resource; generated reference documentation is derived from the schema and examples;
+- registered resources manage queue/quick-connect associations, hours-of-operation overrides, combined data tables, and composite-key data-table records;
+- registered data sources look up phone numbers by full number and contact-flow modules by exact name;
+- maintained examples and generated reference documentation cover every registered surface;
 - fixture-free CI runs the complete unit suite, focused race tests, build, lint, and deterministic documentation generation;
 - tag-triggered releases run the same repository-controlled verification before signed GoReleaser packaging.
 
@@ -53,11 +55,40 @@ instance_id + queue_id + quick_connect_ids (set)
                    present (batches of at most 50)
 ```
 
-`instance_id`, `queue_id`, and `quick_connect_ids` are required and replacement-only. `quick_connect_ids` is an unordered set of UUIDs with canonical set semantics. Create does not adopt unrelated queue associations; read reports partial drift through the declared IDs that remain associated and removes state when none remain; delete disassociates only owned IDs that are present, preserving unrelated associations.
+`instance_id`, `queue_id`, and `quick_connect_ids` are required. `instance_id` and `queue_id` are replacement-only. The unordered UUID set `quick_connect_ids` changes in place by reconciling prior ownership, planned ownership, and complete remote membership under the existing queue lock. Create does not adopt unrelated queue associations; read reports partial drift through the declared IDs that remain associated and removes state when none remain; delete disassociates only owned IDs that are present, preserving unrelated associations.
 
 Overlapping ownership of the same instance, queue, and quick-connect ID across resource instances or Terraform states is unsupported. Mutations targeting the same instance and queue share a provider-local keyed coordinator, while independent queues are not globally serialized. AWS does not document cross-process serialization.
 
 Import uses `instance_id:queue_id:quick_connect_id[,quick_connect_id...]`. IDs must be UUIDs, duplicate IDs are rejected, and the imported set is sorted into canonical state.
+
+## Direct Connect lifecycle
+
+The implemented feature set after association reconciliation is:
+
+```text
+exact lookup data sources
+  ├── phone number by full number
+  └── contact-flow module by exact name
+
+standalone hours-of-operation override
+  └── explicit create/read/update/delete and removal semantics
+
+combined data table
+  ├── table metadata
+  ├── complete managed attribute set
+  └── explicit DEFAULT values
+        |
+        v
+non-default data-table record
+  ├── composite primary-value map
+  └── authoritative value map
+```
+
+The phone-number lookup may use `PhoneNumberPrefix` to narrow the AWS result set, but it must paginate and enforce equality against the full configured number. The contact-flow-module lookup likewise enforces exact name equality after complete pagination. A contact-flow lookup is deliberately omitted because the HashiCorp AWS provider already supplies one.
+
+Hours overrides are modeled separately from their parent hours-of-operation resource. This gives Terraform a distinct remote identity and lets update code send explicit removals instead of relying on ambiguous nested optional/computed state. Schedule input uses an optional `time_windows` set with required `day` and zero-padded `opens`/`closes` strings. Omission is a canonical empty set: `STANDARD` and `CLOSED` may represent full-day closure without boilerplate, while `OPEN` requires at least one window.
+
+The data-table resource combines table metadata and its complete managed attribute set because attributes are structurally subordinate to the table. The initial schema represents attribute type, description, and primary-key membership; AWS attribute validation rules and table tags remain deferred because their removal/update behavior is not reliably representable through the pinned SDK. Explicit default values are keyed by attribute name. AWS represents a stored default by returning `RecordId` `DEFAULT` when a value is created with `PrimaryValues` omitted; absence of a configured default means no stored default even if the console renders an implicit empty row. Non-default records remain separate resources and expose composite primary values as a map whose API representation is sorted by attribute name.
 
 ## Planned discovery contract
 

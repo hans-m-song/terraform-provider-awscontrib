@@ -16,7 +16,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -127,7 +126,6 @@ func (r *queueQuickConnectAssociationsResource) Metadata(_ context.Context, req 
 
 func (r *queueQuickConnectAssociationsResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	replacementStringModifiers := []planmodifier.String{stringplanmodifier.RequiresReplace()}
-	replacementSetModifiers := []planmodifier.Set{setplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a set of Amazon Connect queue-to-quick-connect associations. Mutations for the same instance and queue are serialized within one provider process.",
 		Attributes: map[string]schema.Attribute{
@@ -145,7 +143,6 @@ func (r *queueQuickConnectAssociationsResource) Schema(_ context.Context, _ reso
 				MarkdownDescription: "The unique quick-connect UUIDs managed by this resource. Amazon Connect accepts at most 50 IDs per association request.",
 				ElementType:         types.StringType,
 				Required:            true,
-				PlanModifiers:       replacementSetModifiers,
 				Validators:          []validator.Set{quickConnectIDsValidator{}},
 			},
 		},
@@ -237,7 +234,37 @@ func (r *queueQuickConnectAssociationsResource) Read(ctx context.Context, req re
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *queueQuickConnectAssociationsResource) Update(context.Context, resource.UpdateRequest, *resource.UpdateResponse) {
+func (r *queueQuickConnectAssociationsResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var prior queueQuickConnectAssociationsModel
+	var planned queueQuickConnectAssociationsModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &planned)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if r.client == nil {
+		resp.Diagnostics.AddError("Amazon Connect Client Not Configured", "The provider did not configure an Amazon Connect client.")
+		return
+	}
+
+	priorIDs, diagnostics := quickConnectIDsFromModel(ctx, prior)
+	resp.Diagnostics.Append(diagnostics...)
+	plannedIDs, diagnostics := quickConnectIDsFromModel(ctx, planned)
+	resp.Diagnostics.Append(diagnostics...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	identity := associationIdentity{instanceID: planned.InstanceID.ValueString(), queueID: planned.QueueID.ValueString()}
+	if err := r.updateAssociations(ctx, identity, priorIDs, plannedIDs); err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to Update Queue Quick Connect Associations",
+			fmt.Sprintf("Could not reconcile quick connects %q for queue %q: %s", plannedIDs, identity.queueID, err),
+		)
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &planned)...)
 }
 
 func (r *queueQuickConnectAssociationsResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -316,6 +343,49 @@ func (r *queueQuickConnectAssociationsResource) deleteAssociations(ctx context.C
 	})
 }
 
+func (r *queueQuickConnectAssociationsResource) updateAssociations(ctx context.Context, identity associationIdentity, priorIDs, plannedIDs []string) error {
+	return r.coordinator.withLock(queueKey{instanceID: identity.instanceID, queueID: identity.queueID}, func() error {
+		remoteIDs, err := r.listAssociations(ctx, identity)
+		if err != nil {
+			return err
+		}
+
+		plannedIDSet := make(map[string]struct{}, len(plannedIDs))
+		for _, id := range plannedIDs {
+			plannedIDSet[id] = struct{}{}
+		}
+		removedIDs := intersectQuickConnectIDs(missingQuickConnectIDs(priorIDs, plannedIDSet), remoteIDs)
+
+		remoteAfterRemoval := make(map[string]struct{}, len(remoteIDs))
+		for id := range remoteIDs {
+			remoteAfterRemoval[id] = struct{}{}
+		}
+		for _, id := range removedIDs {
+			delete(remoteAfterRemoval, id)
+		}
+		addedIDs := missingQuickConnectIDs(plannedIDs, remoteAfterRemoval)
+		if len(removedIDs) == 0 && len(addedIDs) == 0 {
+			return nil
+		}
+
+		if err := r.mutateAssociations(ctx, identity, removedIDs, false); err != nil {
+			return err
+		}
+		if err := r.mutateAssociations(ctx, identity, addedIDs, true); err != nil {
+			return err
+		}
+
+		expectedMembership := make(map[string]bool, len(plannedIDs)+len(removedIDs))
+		for _, id := range plannedIDs {
+			expectedMembership[id] = true
+		}
+		for _, id := range removedIDs {
+			expectedMembership[id] = false
+		}
+		return r.reconcileMembership(ctx, identity, expectedMembership)
+	})
+}
+
 func (r *queueQuickConnectAssociationsResource) mutateAssociations(ctx context.Context, identity associationIdentity, ids []string, associate bool) error {
 	for start := 0; start < len(ids); start += maxQuickConnectIDsPerRequest {
 		end := start + maxQuickConnectIDsPerRequest
@@ -376,21 +446,25 @@ func (r *queueQuickConnectAssociationsResource) listAssociations(ctx context.Con
 }
 
 func (r *queueQuickConnectAssociationsResource) reconcileAssociations(ctx context.Context, identity associationIdentity, ids []string, expectedPresent bool) error {
+	expectedMembership := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		expectedMembership[id] = expectedPresent
+	}
+	return r.reconcileMembership(ctx, identity, expectedMembership)
+}
+
+func (r *queueQuickConnectAssociationsResource) reconcileMembership(ctx context.Context, identity associationIdentity, expectedMembership map[string]bool) error {
 	policy := r.reconciliation
 	if policy.attempts < 1 || policy.wait == nil {
 		policy = defaultReconciliationPolicy()
 	}
 
-	expectedIDs := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		expectedIDs[id] = struct{}{}
-	}
 	var lastTransientError error
 	for attempt := 1; attempt <= policy.attempts; attempt++ {
 		remoteIDs, err := r.listAssociations(ctx, identity)
 		if err == nil {
 			lastTransientError = nil
-			if associationsMatch(remoteIDs, expectedIDs, expectedPresent) {
+			if associationMembershipMatches(remoteIDs, expectedMembership) {
 				return nil
 			}
 		} else {
@@ -413,7 +487,7 @@ func (r *queueQuickConnectAssociationsResource) reconcileAssociations(ctx contex
 	if lastTransientError != nil {
 		return fmt.Errorf("association membership did not converge after %d observations; last transient read error: %w", policy.attempts, lastTransientError)
 	}
-	return fmt.Errorf("association membership did not converge after %d observations: expected membership %t for %d quick connects", policy.attempts, expectedPresent, len(ids))
+	return fmt.Errorf("association membership did not converge after %d observations for %d quick connects", policy.attempts, len(expectedMembership))
 }
 
 func defaultReconciliationPolicy() reconciliationPolicy {
@@ -433,6 +507,21 @@ func defaultReconciliationPolicy() reconciliationPolicy {
 }
 
 func quickConnectIDsFromModel(ctx context.Context, data queueQuickConnectAssociationsModel) ([]string, diag.Diagnostics) {
+	if data.QuickConnectIDs.IsNull() {
+		return nil, diag.Diagnostics{diag.NewAttributeErrorDiagnostic(
+			path.Root("quick_connect_ids"),
+			"Invalid Quick Connect IDs",
+			"quick_connect_ids must be a known, non-null set during apply",
+		)}
+	}
+	if data.QuickConnectIDs.IsUnknown() {
+		return nil, diag.Diagnostics{diag.NewAttributeErrorDiagnostic(
+			path.Root("quick_connect_ids"),
+			"Invalid Quick Connect IDs",
+			"quick_connect_ids must be known during apply; wait for its quick-connect IDs to be created before applying this resource",
+		)}
+	}
+
 	var ids []string
 	diagnostics := data.QuickConnectIDs.ElementsAs(ctx, &ids, false)
 	if diagnostics.HasError() {
@@ -464,8 +553,8 @@ func missingQuickConnectIDs(declaredIDs []string, remoteIDs map[string]struct{})
 	return missingIDs
 }
 
-func associationsMatch(remoteIDs, expectedIDs map[string]struct{}, expectedPresent bool) bool {
-	for id := range expectedIDs {
+func associationMembershipMatches(remoteIDs map[string]struct{}, expectedMembership map[string]bool) bool {
+	for id, expectedPresent := range expectedMembership {
 		_, present := remoteIDs[id]
 		if present != expectedPresent {
 			return false

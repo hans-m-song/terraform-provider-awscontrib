@@ -163,3 +163,72 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - The validator now decodes elements as Framework `types.String` values, skips UUID validation only for unknown elements, and continues to reject null, empty, and known-invalid values.
 - CRUD and import conversions remain strict because apply-time values must be known before AWS requests are built.
 - Full unit tests, focused race tests, build, and lint passed. Independent behavioral and race verification passed; the independent full-lint invocation was blocked by its isolated golangci-lint environment, while the parent `make lint` completed with zero issues. No real AWS calls were made.
+
+## 2026-08-19 — Approved Connect lifecycle expansion
+
+### Queue association updates
+
+- The owner approved changing `quick_connect_ids` in place while retaining replacement semantics for `instance_id` and `queue_id`.
+- Update reconciliation compares prior ownership, planned ownership, and complete remote membership under the existing `{instance_id, queue_id}` coordinator.
+- Removed owned IDs are processed before additions. This reduces the risk of an add-first failure when the queue is at its association quota, but a failed apply can temporarily remove an old association before its replacement is added.
+- AWS mutations are not treated as a transaction. Successful earlier batches are not rolled back after a later failure; state is not advanced, refresh exposes remote completion, and a subsequent apply reconciles the remainder.
+
+### Exact lookup data sources
+
+- `awscontrib_connect_phone_number` uses paginated `ListPhoneNumbersV2`, a conservative server prefix of at most 11 total characters, and exact full-number comparison client-side. Zero and multiple exact matches are errors.
+- `awscontrib_connect_contact_flow_module` uses paginated `SearchContactFlowModules`, sends a `CONTAINS` criterion only when the configured name satisfies the documented 2–25-character constraint, and always enforces exact equality client-side. A separate contact-flow data source is omitted because the HashiCorp AWS provider already supplies one.
+- The pinned Connect SDK `v1.189.0` returns full contact-flow-module objects from search. External invocation configuration is deliberately outside the initial Terraform schema; requested content, hash, settings, state, status, version metadata, and tags are included.
+
+### Hours and data-table boundaries
+
+- Hours-of-operation overrides will be standalone resources rather than nested state. This maps to the dedicated create, describe, update, and delete API family and permits explicit attribute-removal behavior.
+- Data-table metadata and its complete provider-managed attribute set are one authoritative resource. DEFAULT values are an explicit map keyed by attribute name; non-default records remain separate resources keyed by a nonempty, canonical composite primary-value map.
+- The owner's real CLI observations on 2026-08-19 establish that omitting `PrimaryValues` from `BatchCreateDataTableValue` creates a concrete value with `RecordId` `DEFAULT`, including after an ordinary record exists. `ListDataTablePrimaryValues` does not return that DEFAULT record, while `ListDataTableValues` returns explicit DEFAULT values.
+- The console may render an implicit empty Default row when no explicit DEFAULT values exist. Provider state must reflect stored API values rather than adopting that presentation-only row.
+- The pinned SDK exposes no record CRUD API. Ordinary records are composed from batch value operations; composite primary values are represented as a sorted API slice and a Terraform map.
+- The pinned SDK's `DataTableStatus` currently exposes only `PUBLISHED`, despite inconsistent generated prose mentioning `SAVED`. `SAVED` remains excluded until primary documentation or real-service evidence resolves the contradiction.
+
+### Primary references
+
+- https://docs.aws.amazon.com/connect/latest/APIReference/API_ListPhoneNumbersV2.html
+- https://docs.aws.amazon.com/connect/latest/APIReference/API_SearchContactFlowModules.html
+- https://docs.aws.amazon.com/connect/latest/devguide/hours-of-operation-api.html
+- https://docs.aws.amazon.com/connect/latest/devguide/data-tables-api.html
+- https://docs.aws.amazon.com/connect/latest/APIReference/API_BatchCreateDataTableValue.html
+- https://github.com/hashicorp/terraform-provider-awscc/issues/2734
+
+## 2026-08-19 — Hours-of-operation override lifecycle
+
+- Implemented `awscontrib_connect_hours_of_operation_override` against the dedicated create, describe, update, and delete APIs.
+- `instance_id`, `hours_of_operation_id`, and the computed remote override ID form identity; import uses `instance_id:hours_of_operation_id:override_id`.
+- Schedule configuration is an unordered set and outbound API entries are sorted deterministically because AWS documents no response ordering and multiple intervals can share a day.
+- `config` may be an explicit empty set and update sends a non-nil empty slice, which is the SDK's representable clear operation.
+- Description and recurrence are optional on create. Removing either after creation forces replacement because the update serializer cannot send an explicit null, while the service rejects an empty description and an empty recurrence object.
+- Recurrence exposes scalar month/day/occurrence fields because AWS permits at most one of each. The provider enforces documented ranges and mutual exclusion between month-day and weekday-occurrence.
+- Unit, focused race, vet, lint, provider-registration, example-formatting, and two-generation checks passed. No real AWS calls were made.
+
+## 2026-08-19 — Temporary verification storage
+
+- Repeated isolated Go caches and a prior unsigned release-validation directory exhausted the local data volume during race testing.
+- Explicit project-specific paths under `/private/tmp` were inspected and approximately 3 GB of generated test/build artifacts were removed. Repository files were not included. A read-only module cache remained partly undeleted because its files were permission-protected.
+
+## 2026-08-19 — Direct Connect data-table lifecycle
+
+- Implemented `awscontrib_connect_data_table` as the authoritative owner of table metadata, the complete set of attributes represented by the provider schema, and explicit DEFAULT values.
+- Attribute maps are keyed by remote attribute name. Removing a key deletes the attribute and its values; renaming is therefore delete/create. Primary-to-non-primary demotion replaces the table because the pinned SDK omits `Primary:false`.
+- DEFAULT values are created, updated, and deleted through batch value APIs with `PrimaryValues` omitted. Reads paginate all values and retain only concrete `RecordId` `DEFAULT` cells.
+- Table create persists returned identity before child mutations so partial attribute/default failures remain recoverable. Later failed update batches do not advance planned state. Repeated pagination tokens and unsupported remote statuses are errors.
+- Implemented `awscontrib_connect_data_table_record` for non-default records. Composite primary maps are nonempty and converted to a lexicographically sorted API slice; primary changes replace the resource.
+- Record reads first resolve an exact composite key through paginated primary values, then read every cell for the resolved record ID. The `values` map is authoritative over the complete record, so remote additions enter state as drift.
+- Batch create, update, and delete validate that every requested attribute is classified exactly once as success or failure and that returned primary values and record identity are consistent. Partial successful creates retain only unambiguous recoverable state; no automatic rollback occurs.
+- Table and record constructors created by one provider instance share a `{instance_id, data_table_id}` coordinator. Independent tables remain parallel; cross-process serialization is not claimed.
+- Tags and AWS attribute validation rules are deferred. Data-table tag mutation support is not documented, and the pinned SDK cannot reliably represent removal of multiple false/zero validation fields.
+- Parent verification passed full tests, focused race tests, build, lint, and two genuine Terraform 1.14.0 documentation generations. No real AWS calls were made.
+
+## 2026-08-20 — Hours override time-window DX
+
+- Before publication, replaced the API-shaped `config` collection and nested `{hours, minutes}` objects with optional `time_windows` entries containing required `day`, `opens`, and `closes` attributes.
+- Opening and closing times use strict, zero-padded `HH:MM` strings from `00:00` through `23:59`. The provider deliberately does not impose opening-before-closing or overlap rules because AWS midnight and interval semantics do not justify those assumptions.
+- `time_windows` is optional and computed with a typed empty-set default. Omission and `[]` are identical in Terraform state and both serialize to a non-nil empty AWS `Config` slice, including when the final window is removed during update.
+- `STANDARD` and `CLOSED` accept no windows. `OPEN` requires at least one known window. Day remains explicit and is never inferred.
+- Focused and full tests, race tests, lint, schema validation, and two Terraform 1.14.0 documentation generations passed. No real AWS calls were made.

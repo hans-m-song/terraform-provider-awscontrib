@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hans-m-song/terraform-provider-awscontrib/internal/conns"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
@@ -26,17 +27,71 @@ func TestProviderMetadata(t *testing.T) {
 	}
 }
 
-func TestProviderRegistersAssociationResource(t *testing.T) {
+func TestProviderRegistersConnectResources(t *testing.T) {
 	p := New("test")()
 	constructors := p.Resources(context.Background())
-	if len(constructors) != 1 {
-		t.Fatalf("expected one resource constructor, got %d", len(constructors))
+	if len(constructors) != 4 {
+		t.Fatalf("expected four resource constructors, got %d", len(constructors))
 	}
 
-	response := &resource.MetadataResponse{}
-	constructors[0]().Metadata(context.Background(), resource.MetadataRequest{ProviderTypeName: "awscontrib"}, response)
-	if response.TypeName != "awscontrib_connect_queue_quick_connect_associations" {
-		t.Fatalf("unexpected resource type %q", response.TypeName)
+	expectedTypeNames := []string{
+		"awscontrib_connect_queue_quick_connect_associations",
+		"awscontrib_connect_hours_of_operation_override",
+		"awscontrib_connect_data_table",
+		"awscontrib_connect_data_table_record",
+	}
+	for index, constructor := range constructors {
+		if constructor == nil {
+			t.Fatalf("resource constructor %d is nil", index)
+		}
+
+		first := constructor()
+		second := constructor()
+		if first == nil || second == nil {
+			t.Fatalf("resource constructor %d returned nil", index)
+		}
+		if first == second {
+			t.Fatalf("resource constructor %d reused its instance", index)
+		}
+
+		response := &resource.MetadataResponse{}
+		first.Metadata(context.Background(), resource.MetadataRequest{ProviderTypeName: "awscontrib"}, response)
+		if response.TypeName != expectedTypeNames[index] {
+			t.Fatalf("unexpected resource type %q at index %d", response.TypeName, index)
+		}
+	}
+}
+
+func TestProviderRegistersConnectDataSources(t *testing.T) {
+	p := New("test")()
+	constructors := p.DataSources(context.Background())
+	if len(constructors) != 2 {
+		t.Fatalf("expected two data source constructors, got %d", len(constructors))
+	}
+
+	expectedTypeNames := []string{
+		"awscontrib_connect_phone_number",
+		"awscontrib_connect_contact_flow_module",
+	}
+	for index, constructor := range constructors {
+		if constructor == nil {
+			t.Fatalf("data source constructor %d is nil", index)
+		}
+
+		first := constructor()
+		second := constructor()
+		if first == nil || second == nil {
+			t.Fatalf("data source constructor %d returned nil", index)
+		}
+		if first == second {
+			t.Fatalf("data source constructor %d reused its instance", index)
+		}
+
+		response := &datasource.MetadataResponse{}
+		first.Metadata(context.Background(), datasource.MetadataRequest{ProviderTypeName: "awscontrib"}, response)
+		if response.TypeName != expectedTypeNames[index] {
+			t.Fatalf("unexpected data source type %q at index %d", response.TypeName, index)
+		}
 	}
 }
 
@@ -70,6 +125,32 @@ func TestProviderConfigureMapsAWSConfigurationAndPropagatesClient(t *testing.T) 
 	}
 	if response.DataSourceData != expectedClient {
 		t.Fatalf("expected DataSourceData to contain loaded client, got %T", response.DataSourceData)
+	}
+
+	for index, constructor := range New("test")().DataSources(context.Background()) {
+		dataSource, ok := constructor().(datasource.DataSourceWithConfigure)
+		if !ok {
+			t.Fatalf("registered data source %d does not support configuration", index)
+		}
+
+		dataSourceResponse := &datasource.ConfigureResponse{}
+		dataSource.Configure(context.Background(), datasource.ConfigureRequest{ProviderData: response.DataSourceData}, dataSourceResponse)
+		if dataSourceResponse.Diagnostics.HasError() {
+			t.Fatalf("registered data source %d rejected configured provider data: %v", index, dataSourceResponse.Diagnostics)
+		}
+	}
+
+	for index, constructor := range New("test")().Resources(context.Background()) {
+		resourceImplementation, ok := constructor().(resource.ResourceWithConfigure)
+		if !ok {
+			t.Fatalf("registered resource %d does not support configuration", index)
+		}
+
+		resourceResponse := &resource.ConfigureResponse{}
+		resourceImplementation.Configure(context.Background(), resource.ConfigureRequest{ProviderData: response.ResourceData}, resourceResponse)
+		if resourceResponse.Diagnostics.HasError() {
+			t.Fatalf("registered resource %d rejected configured provider data: %v", index, resourceResponse.Diagnostics)
+		}
 	}
 }
 
