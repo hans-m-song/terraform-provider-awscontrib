@@ -66,7 +66,7 @@ func (quickConnectIDsValidator) ValidateSet(ctx context.Context, req validator.S
 		return
 	}
 
-	var ids []string
+	var ids []types.String
 	resp.Diagnostics.Append(req.ConfigValue.ElementsAs(ctx, &ids, false)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -81,11 +81,24 @@ func (quickConnectIDsValidator) ValidateSet(ctx context.Context, req validator.S
 	}
 
 	for _, id := range ids {
-		if !isUUID(id) {
+		if id.IsUnknown() {
+			continue
+		}
+
+		if id.IsNull() {
 			resp.Diagnostics.AddAttributeError(
 				req.Path,
 				"Invalid Quick Connect ID",
-				fmt.Sprintf("quick-connect ID %q must be a UUID", id),
+				"quick-connect ID must be a non-null UUID; replace the null value with a valid quick-connect ID",
+			)
+			continue
+		}
+
+		if !isUUID(id.ValueString()) {
+			resp.Diagnostics.AddAttributeError(
+				req.Path,
+				"Invalid Quick Connect ID",
+				fmt.Sprintf("quick-connect ID %q must be a UUID", id.ValueString()),
 			)
 		}
 	}

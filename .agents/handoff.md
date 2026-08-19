@@ -25,6 +25,7 @@ The provider bootstrap, plural Amazon Connect queue/quick-connect associations r
 - Replaced the unpublished one-edge association resource with a plural additive-subset resource after a real run exposed HTTP 429 throttling under per-edge request fan-out.
 - Added unordered `quick_connect_ids` set ownership, 50-ID request chunking without a total-set cap, partial-drift repair, unrelated-association preservation, and colon/comma composite import with UUID validation.
 - Deliberately left provider retry configuration unchanged at the owner's direction; only `profile` and `region` remain provider arguments.
+- Fixed planning for same-apply quick-connect references by preserving unknown set elements as Framework string values during validation; null and known-invalid values remain rejected.
 
 ## Current repository state
 
@@ -88,3 +89,4 @@ Remaining choices are governed by explicit rules rather than owner questions:
 - Final parent verification passed unit tests, focused race tests, build, lint, GoReleaser configuration, and two consecutive Terraform 1.14.0 documentation generations. Independent verification repeated all gates except the second generation, which was stopped after the parent had already established reproducibility.
 - On 2026-08-19, CI exposed that `terraform fmt` still requires Terraform on PATH. Both CI generation paths now install Terraform 1.14.0 explicitly; local generation and workflow parsing passed after the correction.
 - M1-T05 verification passed full unit tests, focused race tests, build, lint, generated-document checks, and independent review. Associate and disassociate paths both cover 51-ID chunking into 50/1 requests. No real AWS calls were made during this change.
+- M1-T06 verification passed full unit tests, focused race tests, build, and parent lint with zero issues. Independent verification confirmed the unknown-value behavior and all tests but encountered an isolated lint-tool context-loading failure. No AWS calls were made.

@@ -155,3 +155,11 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 
 - Deterministic tests cover associate and disassociate chunking beyond 50 IDs, empty and invalid set validation, subset preservation, partial and total drift, pagination, canonical import, transient reconciliation, and queue-local concurrency.
 - Full unit tests, focused race tests, build, lint, and generated documentation passed. Two consecutive generations produced identical reference checksums. Independent testing found no release blocker. No real AWS calls were made during verification.
+
+## 2026-08-19 — Unknown quick-connect IDs during planning
+
+- A same-apply configuration referenced computed `quick_connect_id` values before their resources existed. Terraform correctly represented those set elements as unknown during planning.
+- The custom set validator incorrectly decoded the set into `[]string`; Go strings cannot represent Terraform unknown values, so Framework returned `Value Conversion Error` before apply.
+- The validator now decodes elements as Framework `types.String` values, skips UUID validation only for unknown elements, and continues to reject null, empty, and known-invalid values.
+- CRUD and import conversions remain strict because apply-time values must be known before AWS requests are built.
+- Full unit tests, focused race tests, build, and lint passed. Independent behavioral and race verification passed; the independent full-lint invocation was blocked by its isolated golangci-lint environment, while the parent `make lint` completed with zero issues. No real AWS calls were made.

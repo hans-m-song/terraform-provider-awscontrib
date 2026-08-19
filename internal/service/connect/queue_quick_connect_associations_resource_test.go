@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconnect "github.com/aws/aws-sdk-go-v2/service/connect"
 	connecttypes "github.com/aws/aws-sdk-go-v2/service/connect/types"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	resourceschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -134,6 +136,43 @@ func TestQuickConnectIDsValidatorRejectsEmptySet(t *testing.T) {
 	quickConnectIDsValidator{}.ValidateSet(context.Background(), validator.SetRequest{Path: path.Root("quick_connect_ids"), ConfigValue: emptySet}, response)
 	if !response.Diagnostics.HasError() {
 		t.Fatal("expected empty quick-connect ID set diagnostic")
+	}
+}
+
+func TestQuickConnectIDsValidatorAllowsUnknownElements(t *testing.T) {
+	set, diagnostics := types.SetValue(types.StringType, []attr.Value{
+		types.StringValue(quickConnectID1),
+		types.StringUnknown(),
+	})
+	if diagnostics.HasError() {
+		t.Fatalf("unexpected set construction diagnostics: %v", diagnostics)
+	}
+
+	response := &validator.SetResponse{}
+	quickConnectIDsValidator{}.ValidateSet(context.Background(), validator.SetRequest{Path: path.Root("quick_connect_ids"), ConfigValue: set}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected diagnostic for unknown UUID: %v", response.Diagnostics)
+	}
+}
+
+func TestQuickConnectIDsValidatorRejectsNullElements(t *testing.T) {
+	set, diagnostics := types.SetValue(types.StringType, []attr.Value{types.StringNull()})
+	if diagnostics.HasError() {
+		t.Fatalf("unexpected set construction diagnostics: %v", diagnostics)
+	}
+
+	response := &validator.SetResponse{}
+	quickConnectIDsValidator{}.ValidateSet(context.Background(), validator.SetRequest{Path: path.Root("quick_connect_ids"), ConfigValue: set}, response)
+	if !response.Diagnostics.HasError() {
+		t.Fatal("expected null quick-connect ID diagnostic")
+	}
+
+	diagnostic := response.Diagnostics[0]
+	if diagnostic.Summary() != "Invalid Quick Connect ID" {
+		t.Fatalf("unexpected null quick-connect ID diagnostic summary: %q", diagnostic.Summary())
+	}
+	if !strings.Contains(diagnostic.Detail(), "replace the null value") {
+		t.Fatalf("expected actionable null quick-connect ID detail, got %q", diagnostic.Detail())
 	}
 }
 

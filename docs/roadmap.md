@@ -128,6 +128,19 @@ Status: Complete.
 - Blockers: none.
 - Parallel boundaries: resource lifecycle/schema edits may proceed independently from maintained documentation until provider registration and generated documentation integration.
 
+### M1-T06 — Accept unknown quick-connect IDs during planning
+
+- Status: Complete.
+- Goal: allow `quick_connect_ids` to reference computed IDs of quick connects created in the same Terraform operation.
+- Scope: make set validation preserve Terraform null and unknown semantics; continue validating every known quick-connect ID as a UUID; add regression coverage for unknown elements and known invalid values.
+- Constraints: do not weaken apply-time behavior or introduce configuration workarounds; no provider retry changes; no real AWS calls.
+- Acceptance criteria: planning a nonempty set containing unknown string elements produces no value-conversion diagnostic; known invalid UUIDs and an empty set still produce diagnostics; known valid values retain existing lifecycle behavior.
+- Roles: main agent, executor, tester.
+- Dependencies: `M1-T05`.
+- Verification gates: focused unit and race tests, complete unit suite, build, lint, generated-document drift review, and independent tester report.
+- Blockers: none.
+- Parallel boundaries: implementation and tests share one file pair and remain one ownership unit; independent verification follows the implementation checkpoint.
+
 ## M2 — Amazon Connect quick-connect discovery
 
 Goal: provide a plural data source that lists quick connects in an Amazon Connect instance.
