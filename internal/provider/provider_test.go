@@ -35,7 +35,7 @@ func TestProviderRegistersAssociationResource(t *testing.T) {
 
 	response := &resource.MetadataResponse{}
 	constructors[0]().Metadata(context.Background(), resource.MetadataRequest{ProviderTypeName: "awscontrib"}, response)
-	if response.TypeName != "awscontrib_connect_queue_quick_connect_association" {
+	if response.TypeName != "awscontrib_connect_queue_quick_connect_associations" {
 		t.Fatalf("unexpected resource type %q", response.TypeName)
 	}
 }

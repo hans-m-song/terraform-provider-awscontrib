@@ -2,11 +2,11 @@
 
 ## Updated
 
-2026-08-18, Australia/Brisbane.
+2026-08-19, Australia/Brisbane.
 
 ## Objective
 
-The provider bootstrap, primary Amazon Connect queue/quick-connect association, and repository-controlled initial release-readiness milestone `M3` are complete. Plural quick-connect discovery remains proposed as milestone `M2`.
+The provider bootstrap, plural Amazon Connect queue/quick-connect associations resource, and repository-controlled initial release-readiness milestone `M3` are complete. Plural quick-connect discovery remains proposed as milestone `M2`.
 
 ## Completed this session
 
@@ -22,6 +22,9 @@ The provider bootstrap, primary Amazon Connect queue/quick-connect association, 
 - Corrected release ownership metadata, fixture-free CI, changelog, installation examples, and tag-triggered release gates.
 - Pinned documentation schema export to Terraform CLI 1.14.0 after isolating a tfplugindocs 0.25.0 failure with Terraform CLI 1.15.8.
 - Preserved verified MPL-2.0, HashiCorp, and IBM notices while removing stale HashiCorp-managed workflows and policy references.
+- Replaced the unpublished one-edge association resource with a plural additive-subset resource after a real run exposed HTTP 429 throttling under per-edge request fan-out.
+- Added unordered `quick_connect_ids` set ownership, 50-ID request chunking without a total-set cap, partial-drift repair, unrelated-association preservation, and colon/comma composite import with UUID validation.
+- Deliberately left provider retry configuration unchanged at the owner's direction; only `profile` and `region` remain provider arguments.
 
 ## Current repository state
 
@@ -29,7 +32,7 @@ The provider bootstrap, primary Amazon Connect queue/quick-connect association, 
 - Provider: `registry.terraform.io/hans-m-song/awscontrib`, type `awscontrib`.
 - Go baseline: 1.26; Terraform protocol 6 and Terraform 1.0+.
 - AWS SDK for Go v2 uses the standard configuration chain with optional `profile` and `region`.
-- Registered resource: `awscontrib_connect_queue_quick_connect_association`.
+- Registered resource: `awscontrib_connect_queue_quick_connect_associations`.
 - No data sources, actions, functions, or ephemeral resources are registered.
 - Generated documentation and examples match the implemented provider schema.
 
@@ -44,6 +47,9 @@ The owner resolved the major public-contract decisions:
 - item `id` is required and other summary attributes are optional enhancements;
 - `ListQuickConnects` only, with exposed API filters and name filtering;
 - no stable real-AWS fixtures.
+- the associations resource owns only its declared subset; overlapping ownership of the same edge is unsupported;
+- association import is `instance_id:queue_id:quick_connect_id[,quick_connect_id...]`, with UUID-only components and duplicate rejection;
+- no provider `max_retries` or `retry_mode` arguments are added; batching is the selected throttling mitigation.
 
 Remaining choices are governed by explicit rules rather than owner questions:
 
@@ -54,7 +60,7 @@ Remaining choices are governed by explicit rules rather than owner questions:
 ## Next actions
 
 1. Move or delete the ignored local PGP export files from the repository directory; never commit them.
-2. Review and commit the intended source and generated documentation changes.
+2. Review and commit the plural association source, tests, examples, and generated documentation changes.
 3. Authorize creation and push of `v0.1.0` only after reviewing the final diff; the tag triggers signing and GitHub release publication.
 4. Verify the generated GitHub release contains the manifest, archives, checksum file, and detached checksum signature before registering or resynchronizing the provider.
 5. If desired, plan milestone `M2` for plural quick-connect discovery separately.
@@ -63,6 +69,7 @@ Remaining choices are governed by explicit rules rather than owner questions:
 
 - Queue mutation serialization applies only within one provider process.
 - Multiple Terraform states must not manage the same association edge.
+- Multiple resources in one state must also avoid overlapping ownership of the same association edge.
 - AWS does not document isolation for simultaneous queue association mutations from separate callers.
 - The 2.5-second reconciliation window may need adjustment after real-AWS evidence.
 - There are no stable real-AWS fixtures; current confidence comes from deterministic fake-client and Framework tests.
@@ -80,3 +87,4 @@ Remaining choices are governed by explicit rules rather than owner questions:
 - No real AWS calls were made.
 - Final parent verification passed unit tests, focused race tests, build, lint, GoReleaser configuration, and two consecutive Terraform 1.14.0 documentation generations. Independent verification repeated all gates except the second generation, which was stopped after the parent had already established reproducibility.
 - On 2026-08-19, CI exposed that `terraform fmt` still requires Terraform on PATH. Both CI generation paths now install Terraform 1.14.0 explicitly; local generation and workflow parsing passed after the correction.
+- M1-T05 verification passed full unit tests, focused race tests, build, lint, generated-document checks, and independent review. Associate and disassociate paths both cover 51-ID chunking into 50/1 requests. No real AWS calls were made during this change.

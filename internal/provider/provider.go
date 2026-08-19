@@ -85,7 +85,7 @@ func New(version string) func() provider.Provider {
 			version:    version,
 			loadClient: conns.New,
 			resourceConstructors: []func() resource.Resource{
-				connectservice.QueueQuickConnectAssociationResourceFactory(),
+				connectservice.QueueQuickConnectAssociationsResourceFactory(),
 			},
 		}
 	}

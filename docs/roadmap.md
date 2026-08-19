@@ -59,7 +59,7 @@ Status: Complete.
 
 ## M1 — Amazon Connect queue/quick-connect association
 
-Goal: manage one queue-to-quick-connect association per Terraform resource with safe same-process concurrency.
+Goal: manage a set of queue-to-quick-connect associations per Terraform resource with safe same-process concurrency.
 
 Status: Complete.
 
@@ -114,6 +114,19 @@ Status: Complete.
 - Verification gates: `make generate`, generated-diff inspection, `make test`, `make lint`, and build.
 - Blockers: none.
 - Parallel boundaries: maintained documentation and examples can be prepared independently; final generation and handoff are serialized.
+
+### M1-T05 — Batch queue quick-connect associations
+
+- Status: Complete.
+- Goal: reduce Amazon Connect request pressure by managing an unordered set of quick-connect IDs per queue.
+- Scope: replace the unpublished singular resource contract with `awscontrib_connect_queue_quick_connect_associations`; use required `quick_connect_ids` set semantics; batch associate and disassociate requests in groups up to the documented 50-ID API limit; use colon-delimited composite import with a comma-delimited, canonical ID suffix; recognize `TooManyRequestsException` during reconciliation; update tests, examples, generated references, and maintained documentation.
+- Constraints: the resource owns only its declared association subset and must preserve unrelated remote associations; overlapping ownership across resources is unsupported; provider retry configuration remains unchanged; no real AWS calls or acceptance-fixture claims.
+- Acceptance criteria: create and delete batch the declared IDs; read detects partial and total drift without adopting unrelated associations; import validates and canonicalizes all IDs; deterministic tests cover throttling, batching, pagination, drift, import, and same-queue concurrency.
+- Roles: main agent, executor, tester.
+- Dependencies: `M1-T04`.
+- Verification gates: focused race tests, complete unit tests, build, lint, generation, generated-diff check, and independent tester report.
+- Blockers: none.
+- Parallel boundaries: resource lifecycle/schema edits may proceed independently from maintained documentation until provider registration and generated documentation integration.
 
 ## M2 — Amazon Connect quick-connect discovery
 

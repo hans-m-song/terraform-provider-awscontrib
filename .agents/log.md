@@ -134,3 +134,24 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - The CI generation job failed because `make generate` invokes `terraform fmt` before tfplugindocs, while Terraform CLI setup had been removed after pinning tfplugindocs' separate schema-export subprocess.
 - Restored `hashicorp/setup-terraform` with Terraform CLI 1.14.0 in both the test workflow generation job and the release workflow verification job.
 - Retained tfplugindocs' independent `--tf-version 1.14.0` pin. Local generation and workflow YAML parsing passed after the correction.
+
+## 2026-08-19 — Plural queue quick-connect associations
+
+### Evidence and correction
+
+- A real provider run returned HTTP 429 `TooManyRequestsException` from `AssociateQueueQuickConnects` after the AWS SDK exhausted its default three attempts.
+- The owner chose request reduction through batching and explicitly declined provider-level `max_retries` and `retry_mode` configuration. Provider configuration therefore remains limited to `profile` and `region`; standard AWS SDK and shared-configuration retry controls remain external.
+- Amazon Connect accepts 1 through 50 quick-connect IDs per associate request. The resource does not impose 50 as a total set limit; it chunks larger declared sets into requests of at most 50 IDs.
+
+### Superseding association contract
+
+- Before the first published release, replaced `awscontrib_connect_queue_quick_connect_association` with `awscontrib_connect_queue_quick_connect_associations`.
+- The resource requires an unordered, nonempty `quick_connect_ids` set and owns only that declared additive subset. Create associates missing declared IDs, read retains the intersection of declared and remote membership, and delete removes only declared IDs that remain present.
+- Unrelated queue associations are preserved. Overlapping ownership of the same edge across resource instances or Terraform states is unsupported.
+- Import uses `instance_id:queue_id:quick_connect_id[,quick_connect_id...]`. Every component must be a UUID; duplicate quick-connect IDs are rejected and IDs are sorted before state import.
+- Provider-local `{instance_id, queue_id}` mutation serialization remains. Reconciliation now also treats the SDK's typed `TooManyRequestsException` as transient, without changing the SDK mutation retry budget.
+
+### Verification
+
+- Deterministic tests cover associate and disassociate chunking beyond 50 IDs, empty and invalid set validation, subset preservation, partial and total drift, pagination, canonical import, transient reconciliation, and queue-local concurrency.
+- Full unit tests, focused race tests, build, lint, and generated documentation passed. Two consecutive generations produced identical reference checksums. Independent testing found no release blocker. No real AWS calls were made during verification.

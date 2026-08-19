@@ -32,25 +32,7 @@ Do not place credentials in Terraform configuration. Configure credentials throu
 
 ## Resources
 
-### `awscontrib_connect_queue_quick_connect_association`
-
-Manages one association between an Amazon Connect queue and quick connect:
-
-```hcl
-resource "awscontrib_connect_queue_quick_connect_association" "example" {
-  instance_id      = aws_connect_instance.example.id
-  queue_id         = aws_connect_queue.example.queue_id
-  quick_connect_id = aws_connect_quick_connect.example.quick_connect_id
-}
-```
-
-The resource uses Amazon Connect's dedicated associate, list, and disassociate APIs. Mutations targeting the same instance and queue are serialized within one provider process. AWS does not document cross-process serialization, so one association edge must not be managed by multiple Terraform states.
-
-Import uses the instance ID, queue ID, and quick-connect ID separated by commas:
-
-```shell
-terraform import awscontrib_connect_queue_quick_connect_association.example 'instance-id,queue-id,quick-connect-id'
-```
+- [`awscontrib_connect_queue_quick_connect_associations`](docs/resources/connect_queue_quick_connect_associations.md)
 
 ## Development
 

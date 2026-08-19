@@ -39,8 +39,8 @@ The association paths are implemented; paths marked `planned M2` are not:
 │       └── connect/
 │           ├── client.go           narrow Connect interfaces
 │           ├── coordinator.go      provider-local queue-keyed mutation locks
-│           ├── queue_quick_connect_association_resource.go
-│           ├── queue_quick_connect_association_resource_test.go
+│           ├── queue_quick_connect_associations_resource.go
+│           ├── queue_quick_connect_associations_resource_test.go
 │           ├── quick_connects_data_source.go       planned M2
 │           └── quick_connects_data_source_test.go  planned M2
 ├── examples/
@@ -48,7 +48,7 @@ The association paths are implemented; paths marked `planned M2` are not:
 │   ├── data-sources/
 │   │   └── awscontrib_connect_quick_connects/data-source.tf  planned M2
 │   └── resources/
-│       └── awscontrib_connect_queue_quick_connect_association/
+│       └── awscontrib_connect_queue_quick_connect_associations/
 ├── docs/
 │   ├── overview.md                 maintained project documentation
 │   ├── structure.md

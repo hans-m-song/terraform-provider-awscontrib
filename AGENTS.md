@@ -55,7 +55,7 @@ main -> provider -> conns
 - Model schemas explicitly; do not rely on implicit `id` attributes.
 - Add constructor functions to the appropriate explicit provider registry.
 - Data sources must paginate list APIs until `NextToken` is empty unless the schema explicitly exposes pagination.
-- Queue/quick-connect association resources own one edge, not a queue's complete association set. Mutations serialize per instance/queue within one provider process; never claim cross-process serialization.
+- The queue/quick-connect associations resource owns only its declared additive subset, not the queue's complete association set. It batches mutations in groups of at most 50 IDs, preserves unrelated associations, and rejects overlapping ownership as unsupported. Mutations serialize per instance/queue within one provider process; never claim cross-process serialization.
 - Plural quick-connect results are represented as a list sorted by quick-connect ID. Do not rely on AWS response order.
 - The plural quick-connect data source uses `ListQuickConnects` only. Apply quick-connect-type filters through the API and exact name filtering client-side after complete pagination.
 - Use a set for unordered unique quick-connect-type filter values and a computed list nested attribute for ordered results.

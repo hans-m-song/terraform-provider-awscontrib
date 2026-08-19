@@ -8,7 +8,7 @@ The first implemented feature is an Amazon Connect queue/quick-connect associati
 
 ## Current state
 
-As of 2026-08-18, the provider bootstrap and first resource are implemented:
+As of 2026-08-19, the provider bootstrap and first resource are implemented:
 
 - the Go module is `github.com/hans-m-song/terraform-provider-awscontrib`;
 - the provider type is `awscontrib` and server address is `registry.terraform.io/hans-m-song/awscontrib`;
@@ -16,7 +16,7 @@ As of 2026-08-18, the provider bootstrap and first resource are implemented:
 - `internal/conns` owns AWS configuration and client construction;
 - `internal/service/connect` owns the queue/quick-connect association implementation;
 - scaffold resources, data sources, actions, functions, and ephemeral resources have been removed;
-- examples and generated documentation describe the `awscontrib` provider and association resource.
+- the maintained examples define the plural association resource; generated reference documentation is derived from the schema and examples;
 - fixture-free CI runs the complete unit suite, focused race tests, build, lint, and deterministic documentation generation;
 - tag-triggered releases run the same repository-controlled verification before signed GoReleaser packaging.
 
@@ -40,17 +40,24 @@ Provider configuration must support the AWS shared configuration and credentials
 
 ## Implemented association contract
 
-The resource manages one relationship edge:
+The resource manages an additive subset of queue-to-quick-connect relationship edges:
 
 ```text
-instance_id + queue_id + quick_connect_id
+instance_id + queue_id + quick_connect_ids (set)
         |
-        |-- Create: AssociateQueueQuickConnects
-        |-- Read:   paginated ListQueueQuickConnects
-        `-- Delete: DisassociateQueueQuickConnects
+        |-- Create: ListQueueQuickConnects, then AssociateQueueQuickConnects
+        |            for declared IDs that are missing (batches of at most 50)
+        |-- Read:   paginated ListQueueQuickConnects, retaining the
+        |            intersection with the declared IDs
+        `-- Delete: DisassociateQueueQuickConnects for owned IDs that are
+                   present (batches of at most 50)
 ```
 
-All three attributes are required and replacement-only. Import uses `instance_id,queue_id,quick_connect_id`. Association mutations targeting the same instance and queue share a provider-local keyed coordinator. This prevents overlapping same-process mutations without globally serializing independent queues. AWS does not document cross-process concurrency guarantees.
+`instance_id`, `queue_id`, and `quick_connect_ids` are required and replacement-only. `quick_connect_ids` is an unordered set of UUIDs with canonical set semantics. Create does not adopt unrelated queue associations; read reports partial drift through the declared IDs that remain associated and removes state when none remain; delete disassociates only owned IDs that are present, preserving unrelated associations.
+
+Overlapping ownership of the same instance, queue, and quick-connect ID across resource instances or Terraform states is unsupported. Mutations targeting the same instance and queue share a provider-local keyed coordinator, while independent queues are not globally serialized. AWS does not document cross-process serialization.
+
+Import uses `instance_id:queue_id:quick_connect_id[,quick_connect_id...]`. IDs must be UUIDs, duplicate IDs are rejected, and the imported set is sorted into canonical state.
 
 ## Planned discovery contract
 
