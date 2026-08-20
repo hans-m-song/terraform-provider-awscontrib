@@ -232,3 +232,19 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - `time_windows` is optional and computed with a typed empty-set default. Omission and `[]` are identical in Terraform state and both serialize to a non-nil empty AWS `Config` slice, including when the final window is removed during update.
 - `STANDARD` and `CLOSED` accept no windows. `OPEN` requires at least one known window. Day remains explicit and is never inferred.
 - Focused and full tests, race tests, lint, schema validation, and two Terraform 1.14.0 documentation generations passed. No real AWS calls were made.
+
+## 2026-08-20 — AWSCC data-table migration preparation
+
+- Added a parallel awscontrib configuration for the three tables in the owner-supplied `data_tables.tf`; the source AWSCC configuration remains unchanged.
+- Consolidated seven attribute resources and three explicit DEFAULT records into three `awscontrib_connect_data_table` resources. Three non-default records map to `awscontrib_connect_data_table_record` resources with string-valued maps.
+- The current record resource cannot safely adopt existing non-default records: it has no importer and Create unconditionally calls `BatchCreateDataTableValue`. A non-destructive complete cutover is therefore blocked until record import support exists.
+- The migration runbook requires every target table and record to be imported and reviewed before any old AWSCC state address is removed. It documents the loss of AWSCC validation rules and `ignore_changes` behavior as explicit migration decisions.
+- Terraform formatting and structural mapping checks passed. No AWS, provider initialization, apply, import, or state mutation was performed.
+
+## 2026-08-20 — Non-default data-table record import
+
+- Added `awscontrib_connect_data_table_record` import using `instance_id:data_table_id:record_id`. `DEFAULT` and malformed identities are rejected.
+- Import seeds only stable identity and performs no Amazon Connect mutation. The first refresh uses the record-ID filter on paginated `ListDataTablePrimaryValues`, locally retains the requested ID because AWS may ignore `RecordIds` after the first page, reconstructs the complete composite primary-value map, and then reads every remote record cell.
+- Imported `values` adopt the complete remote non-primary value set under the existing authoritative ownership contract. A subsequent plan may delete remote cells omitted from configuration; the migration runbook requires targeted review before old AWSCC state is removed.
+- Missing records are removed from state. Duplicate matching primary responses, malformed primary values, repeated pagination tokens, and the `DEFAULT` sentinel produce diagnostics.
+- Full tests passed with Connect coverage 81.2% and provider coverage 95.7%; full ordinary and race suites passed independently; build and lint passed; two Terraform 1.14.0 documentation generations completed. No AWS calls were made.

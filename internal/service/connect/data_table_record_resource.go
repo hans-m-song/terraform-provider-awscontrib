@@ -22,6 +22,7 @@ import (
 
 var _ resource.Resource = &dataTableRecordResource{}
 var _ resource.ResourceWithConfigure = &dataTableRecordResource{}
+var _ resource.ResourceWithImportState = &dataTableRecordResource{}
 var _ resource.ResourceWithConfigValidators = &dataTableRecordResource{}
 
 type dataTableRecordClient interface {
@@ -49,6 +50,12 @@ type dataTableRecordConfiguration struct {
 	key           dataTableKey
 	primaryValues map[string]string
 	values        map[string]string
+}
+
+type dataTableRecordImportIdentity struct {
+	instanceID  string
+	dataTableID string
+	recordID    string
 }
 
 type dataTableRemoteRecord struct {
@@ -120,6 +127,18 @@ func (r *dataTableRecordResource) Configure(_ context.Context, req resource.Conf
 	r.client = factory.Connect()
 }
 
+func (r *dataTableRecordResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	identity, err := parseDataTableRecordImportID(req.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Unexpected Import Identifier", err.Error())
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("instance_id"), identity.instanceID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("data_table_id"), identity.dataTableID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("record_id"), identity.recordID)...)
+}
+
 func (r *dataTableRecordResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var planned dataTableRecordModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &planned)...)
@@ -180,16 +199,27 @@ func (r *dataTableRecordResource) Read(ctx context.Context, req resource.ReadReq
 	if resp.Diagnostics.HasError() || !r.requireClient(&resp.Diagnostics) {
 		return
 	}
-	configuration, diagnostics := dataTableRecordConfigurationFromTerraform(state)
+	key, primaryValues, importedRecordID, diagnostics := dataTableRecordReadIdentity(state)
 	resp.Diagnostics.Append(diagnostics...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.coordinator.withLock(configuration.key, func() error {
-		remote, err := r.readRemoteRecord(ctx, configuration.key, configuration.primaryValues)
+	err := r.coordinator.withLock(key, func() error {
+		var remote dataTableRemoteRecord
+		var err error
+		if importedRecordID != "" {
+			primaryValues, err = r.findPrimaryValuesByID(ctx, key, importedRecordID)
+			if err != nil {
+				return err
+			}
+			remote, err = r.readRemoteRecordByID(ctx, key, importedRecordID)
+		} else {
+			remote, err = r.readRemoteRecord(ctx, key, primaryValues)
+		}
 		if err != nil {
 			return err
 		}
+		state.PrimaryValues = stringMapValue(primaryValues)
 		return r.setState(ctx, resp.State.Set, state, remote, &resp.Diagnostics)
 	})
 	if errors.Is(err, errDataTableRecordNotFound) || isDataTableNotFound(err) {
@@ -330,6 +360,34 @@ func dataTableRecordConfigurationFromTerraform(model dataTableRecordModel) (data
 	return dataTableRecordConfiguration{key: dataTableKey{instanceID: instanceID, dataTableID: dataTableID}, primaryValues: primaryValues, values: values}, diagnostics
 }
 
+func dataTableRecordReadIdentity(model dataTableRecordModel) (dataTableKey, map[string]string, string, diag.Diagnostics) {
+	instanceID, instanceDiagnostics := dataTableRequiredString(model.InstanceID, path.Root("instance_id"))
+	dataTableID, tableDiagnostics := dataTableRequiredString(model.DataTableID, path.Root("data_table_id"))
+	key := dataTableKey{instanceID: instanceID, dataTableID: dataTableID}
+	var diagnostics diag.Diagnostics
+	diagnostics.Append(instanceDiagnostics...)
+	diagnostics.Append(tableDiagnostics...)
+	if diagnostics.HasError() {
+		return key, nil, "", diagnostics
+	}
+
+	if model.PrimaryValues.IsNull() || model.PrimaryValues.IsUnknown() {
+		recordID, recordDiagnostics := dataTableRequiredString(model.RecordID, path.Root("record_id"))
+		diagnostics.Append(recordDiagnostics...)
+		if recordID == defaultDataTableRecordID {
+			diagnostics.AddAttributeError(path.Root("record_id"), "Invalid Default Data Table Record", "record_id must identify a non-default data-table record")
+		}
+		return key, nil, recordID, diagnostics
+	}
+
+	primaryValues, primaryDiagnostics := knownStringMap(model.PrimaryValues, path.Root("primary_values"), "Data Table Record Primary Values")
+	diagnostics.Append(primaryDiagnostics...)
+	if len(primaryValues) == 0 && !primaryDiagnostics.HasError() {
+		diagnostics.AddAttributeError(path.Root("primary_values"), "Empty Data Table Record Primary Values", "primary_values must contain at least one entry")
+	}
+	return key, primaryValues, "", diagnostics
+}
+
 func knownStringMap(value types.Map, attributePath path.Path, title string) (map[string]string, diag.Diagnostics) {
 	result := make(map[string]string)
 	if value.IsNull() || value.IsUnknown() {
@@ -361,6 +419,17 @@ func dataTableRecordPrimaryFilters(values map[string]string) []connecttypes.Prim
 		result = append(result, connecttypes.PrimaryAttributeValueFilter{AttributeName: aws.String(name), Values: []string{values[name]}})
 	}
 	return result
+}
+
+func parseDataTableRecordImportID(importID string) (dataTableRecordImportIdentity, error) {
+	parts := strings.Split(importID, ":")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return dataTableRecordImportIdentity{}, fmt.Errorf("expected import identifier with format instance_id:data_table_id:record_id; got %q", importID)
+	}
+	if parts[2] == defaultDataTableRecordID {
+		return dataTableRecordImportIdentity{}, fmt.Errorf("record import ID %q identifies DEFAULT, but only non-default records can be imported", parts[2])
+	}
+	return dataTableRecordImportIdentity{instanceID: parts[0], dataTableID: parts[1], recordID: parts[2]}, nil
 }
 
 func dataTableRecordCreateValues(primaryValues, values map[string]string) []connecttypes.DataTableValue {
@@ -413,6 +482,7 @@ func (r *dataTableRecordResource) readRemoteRecord(ctx context.Context, key data
 
 func (r *dataTableRecordResource) findRecordID(ctx context.Context, key dataTableKey, primaryValues map[string]string) (string, error) {
 	var matches []string
+	matchedIDs := make(map[string]struct{})
 	var nextToken *string
 	seenTokens := make(map[string]struct{})
 	for {
@@ -434,6 +504,10 @@ func (r *dataTableRecordResource) findRecordID(ctx context.Context, key dataTabl
 			if recordID == "" || recordID == defaultDataTableRecordID {
 				return "", fmt.Errorf("amazon Connect returned invalid non-default record identifier %q", recordID)
 			}
+			if _, duplicate := matchedIDs[recordID]; duplicate {
+				return "", fmt.Errorf("amazon Connect returned duplicate primary-value response for record %q", recordID)
+			}
+			matchedIDs[recordID] = struct{}{}
 			matches = append(matches, recordID)
 		}
 		nextToken = page.NextToken
@@ -454,6 +528,70 @@ func (r *dataTableRecordResource) findRecordID(ctx context.Context, key dataTabl
 		return "", fmt.Errorf("amazon Connect returned multiple records for the exact composite primary key: %s", strings.Join(matches, ", "))
 	}
 	return matches[0], nil
+}
+
+func (r *dataTableRecordResource) findPrimaryValuesByID(ctx context.Context, key dataTableKey, recordID string) (map[string]string, error) {
+	if recordID == "" || recordID == defaultDataTableRecordID {
+		return nil, fmt.Errorf("invalid non-default record identifier %q", recordID)
+	}
+
+	var primaryValues map[string]string
+	var nextToken *string
+	seenTokens := make(map[string]struct{})
+	for {
+		page, err := r.client.ListDataTablePrimaryValues(ctx, &awsconnect.ListDataTablePrimaryValuesInput{
+			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID), RecordIds: []string{recordID}, NextToken: nextToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("could not list data-table primary values for record %q: %w", recordID, err)
+		}
+		if page == nil {
+			return nil, errors.New("amazon Connect returned no data-table primary-value page")
+		}
+		for _, candidate := range page.PrimaryValuesList {
+			if aws.ToString(candidate.RecordId) != recordID {
+				continue
+			}
+			if primaryValues != nil {
+				return nil, fmt.Errorf("amazon Connect returned duplicate primary-value responses for record %q", recordID)
+			}
+			primaryValues, err = dataTableRecordPrimaryValuesMap(candidate.PrimaryValues)
+			if err != nil {
+				return nil, fmt.Errorf("amazon Connect returned invalid primary values for record %q: %w", recordID, err)
+			}
+		}
+		nextToken = page.NextToken
+		token := aws.ToString(nextToken)
+		if token == "" {
+			break
+		}
+		if _, repeated := seenTokens[token]; repeated {
+			return nil, fmt.Errorf("amazon Connect repeated data-table primary-value pagination token %q", token)
+		}
+		seenTokens[token] = struct{}{}
+	}
+	if primaryValues == nil {
+		return nil, errDataTableRecordNotFound
+	}
+	return primaryValues, nil
+}
+
+func dataTableRecordPrimaryValuesMap(values []connecttypes.PrimaryValueResponse) (map[string]string, error) {
+	if len(values) == 0 {
+		return nil, errors.New("record primary values are empty")
+	}
+	result := make(map[string]string, len(values))
+	for _, value := range values {
+		name := aws.ToString(value.AttributeName)
+		if name == "" {
+			return nil, errors.New("record primary value has an empty attribute name")
+		}
+		if _, duplicate := result[name]; duplicate {
+			return nil, fmt.Errorf("record primary values contain duplicate attribute %q", name)
+		}
+		result[name] = aws.ToString(value.Value)
+	}
+	return result, nil
 }
 
 func primaryValueResponseMapEqual(candidate []connecttypes.PrimaryValueResponse, expected map[string]string) bool {

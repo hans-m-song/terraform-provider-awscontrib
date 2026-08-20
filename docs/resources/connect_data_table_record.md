@@ -41,3 +41,13 @@ resource "awscontrib_connect_data_table_record" "example" {
 ### Read-Only
 
 - `record_id` (String) Amazon Connect record identifier derived from the composite primary key.
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+terraform import awscontrib_connect_data_table_record.example 'aaaaaaaa-bbbb-cccc-dddd-111111111111:aaaaaaaa-bbbb-cccc-dddd-555555555555:aaaaaaaa-bbbb-cccc-dddd-666666666666'
+```

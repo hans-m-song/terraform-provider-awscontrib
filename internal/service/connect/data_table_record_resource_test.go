@@ -61,15 +61,15 @@ func (f *fakeDataTableRecordClient) ListDataTableValues(ctx context.Context, inp
 	return f.listValues(ctx, input)
 }
 
-func TestDataTableRecordSchemaFactoriesAndNoImport(t *testing.T) {
+func TestDataTableRecordSchemaFactoriesAndImport(t *testing.T) {
 	implementation := NewDataTableRecordResource()
 	metadata := &resource.MetadataResponse{}
 	implementation.Metadata(context.Background(), resource.MetadataRequest{ProviderTypeName: "awscontrib"}, metadata)
 	if metadata.TypeName != "awscontrib_connect_data_table_record" {
 		t.Fatalf("unexpected type name %q", metadata.TypeName)
 	}
-	if _, importable := implementation.(resource.ResourceWithImportState); importable {
-		t.Fatal("data-table records must not expose import")
+	if _, importable := implementation.(resource.ResourceWithImportState); !importable {
+		t.Fatal("expected data-table records to expose import")
 	}
 	response := &resource.SchemaResponse{}
 	implementation.Schema(context.Background(), resource.SchemaRequest{}, response)
@@ -107,6 +107,58 @@ func TestDataTableRecordSchemaFactoriesAndNoImport(t *testing.T) {
 	}
 	if record.coordinator == otherRecord.coordinator {
 		t.Fatal("different provider factories must not share coordinators")
+	}
+}
+
+func TestParseDataTableRecordImportIDValidatesComponents(t *testing.T) {
+	identity, err := parseDataTableRecordImportID("import-instance:import-table:import-record")
+	if err != nil {
+		t.Fatalf("unexpected import error: %v", err)
+	}
+	if identity.instanceID != "import-instance" || identity.dataTableID != "import-table" || identity.recordID != "import-record" {
+		t.Fatalf("unexpected parsed identity: %#v", identity)
+	}
+
+	for _, invalid := range []string{
+		"",
+		"instance",
+		"instance:table",
+		"instance::record",
+		"instance:table:",
+		":table:record",
+		"instance:table:record:extra",
+		"instance:table:DEFAULT",
+	} {
+		if _, err := parseDataTableRecordImportID(invalid); err == nil {
+			t.Errorf("expected import error for %q", invalid)
+		}
+	}
+}
+
+func TestDataTableRecordImportStateSetsIdentity(t *testing.T) {
+	implementation, ok := NewDataTableRecordResource().(resource.ResourceWithImportState)
+	if !ok {
+		t.Fatal("expected importable data-table record resource")
+	}
+	model := sampleDataTableRecordModel(nil, nil)
+	model.PrimaryValues = types.MapNull(types.StringType)
+	model.Values = types.MapNull(types.StringType)
+	model.RecordID = types.StringNull()
+	response := &resource.ImportStateResponse{State: dataTableRecordState(t, model)}
+	implementation.ImportState(context.Background(), resource.ImportStateRequest{ID: "import-instance:import-table:import-record"}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected import diagnostics: %v", response.Diagnostics)
+	}
+	var imported dataTableRecordModel
+	response.Diagnostics.Append(response.State.Get(context.Background(), &imported)...)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected imported state diagnostics: %v", response.Diagnostics)
+	}
+	if imported.InstanceID.ValueString() != "import-instance" || imported.DataTableID.ValueString() != "import-table" || imported.RecordID.ValueString() != "import-record" {
+		t.Fatalf("unexpected imported identity: %#v", imported)
+	}
+	if !imported.PrimaryValues.IsNull() || !imported.Values.IsNull() {
+		t.Fatalf("import should leave reconstructed maps unset: primary=%v values=%v", imported.PrimaryValues, imported.Values)
 	}
 }
 
@@ -232,6 +284,115 @@ func TestDataTableRecordReadPaginatesExactMatchAndSurfacesWholeRecordDrift(t *te
 	external, ok := refreshed.Values.Elements()["external"].(types.String)
 	if !ok || external.ValueString() != "drift" {
 		t.Fatalf("external remote cell was not surfaced: %#v", refreshed.Values)
+	}
+}
+
+func TestDataTableRecordImportedReadReconstructsPrimaryValuesAndRefreshesRecord(t *testing.T) {
+	primaryCalls := 0
+	valueCalls := 0
+	client := &fakeDataTableRecordClient{
+		listPrimaryValues: func(_ context.Context, input *awsconnect.ListDataTablePrimaryValuesInput) (*awsconnect.ListDataTablePrimaryValuesOutput, error) {
+			primaryCalls++
+			if !reflect.DeepEqual(input.RecordIds, []string{"record-imported"}) || len(input.PrimaryAttributeValues) != 0 {
+				t.Fatalf("unexpected imported primary-value request: %#v", input)
+			}
+			if primaryCalls == 1 {
+				return &awsconnect.ListDataTablePrimaryValuesOutput{
+					PrimaryValuesList: []connecttypes.RecordPrimaryValue{{RecordId: aws.String("other-record"), PrimaryValues: []connecttypes.PrimaryValueResponse{{AttributeName: aws.String("ignored"), Value: aws.String("ignored")}}}},
+					NextToken:         aws.String("primary-next"),
+				}, nil
+			}
+			if aws.ToString(input.NextToken) != "primary-next" {
+				t.Fatalf("imported primary pagination token not forwarded: %v", input.NextToken)
+			}
+			return &awsconnect.ListDataTablePrimaryValuesOutput{PrimaryValuesList: []connecttypes.RecordPrimaryValue{{
+				RecordId: aws.String("record-imported"), PrimaryValues: []connecttypes.PrimaryValueResponse{
+					{AttributeName: aws.String("second"), Value: aws.String("b")}, {AttributeName: aws.String("first"), Value: aws.String("a")},
+				},
+			}}}, nil
+		},
+		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+			valueCalls++
+			if !reflect.DeepEqual(input.RecordIds, []string{"record-imported"}) {
+				t.Fatalf("imported record filter not forwarded: %v", input.RecordIds)
+			}
+			if valueCalls == 1 {
+				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{
+					RecordId: aws.String("record-imported"), AttributeName: aws.String("first-value"), Value: aws.String("one"),
+				}}, NextToken: aws.String("value-next")}, nil
+			}
+			if aws.ToString(input.NextToken) != "value-next" {
+				t.Fatalf("imported value pagination token not forwarded: %v", input.NextToken)
+			}
+			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
+				{RecordId: aws.String("record-imported"), AttributeName: aws.String("second-value"), Value: aws.String("two")},
+				{RecordId: aws.String("other-record"), AttributeName: aws.String("ignored"), Value: aws.String("ignored")},
+			}}, nil
+		},
+	}
+	implementation := &dataTableRecordResource{client: client, coordinator: newDataTableCoordinator()}
+	model := sampleDataTableRecordModel(nil, nil)
+	model.PrimaryValues = types.MapNull(types.StringType)
+	model.Values = types.MapNull(types.StringType)
+	model.RecordID = types.StringNull()
+	importResponse := &resource.ImportStateResponse{State: dataTableRecordState(t, model)}
+	implementation.ImportState(context.Background(), resource.ImportStateRequest{ID: "import-instance:import-table:record-imported"}, importResponse)
+	if importResponse.Diagnostics.HasError() {
+		t.Fatalf("unexpected import diagnostics: %v", importResponse.Diagnostics)
+	}
+	readResponse := &resource.ReadResponse{State: importResponse.State}
+	implementation.Read(context.Background(), resource.ReadRequest{State: importResponse.State}, readResponse)
+	if readResponse.Diagnostics.HasError() {
+		t.Fatalf("unexpected imported read diagnostics: %v", readResponse.Diagnostics)
+	}
+	var refreshed dataTableRecordModel
+	readResponse.Diagnostics.Append(readResponse.State.Get(context.Background(), &refreshed)...)
+	if readResponse.Diagnostics.HasError() || primaryCalls != 2 || valueCalls != 2 {
+		t.Fatalf("unexpected imported read state or pagination: %#v calls=%d/%d diagnostics=%v", refreshed, primaryCalls, valueCalls, readResponse.Diagnostics)
+	}
+	if refreshed.InstanceID.ValueString() != "import-instance" || refreshed.DataTableID.ValueString() != "import-table" || refreshed.RecordID.ValueString() != "record-imported" {
+		t.Fatalf("imported identity was not retained: %#v", refreshed)
+	}
+	primary, ok := refreshed.PrimaryValues.Elements()["first"].(types.String)
+	if !ok || primary.ValueString() != "a" {
+		t.Fatalf("primary values were not reconstructed: %#v", refreshed.PrimaryValues)
+	}
+	value, ok := refreshed.Values.Elements()["second-value"].(types.String)
+	if !ok || value.ValueString() != "two" || len(refreshed.Values.Elements()) != 2 {
+		t.Fatalf("authoritative values were not refreshed: %#v", refreshed.Values)
+	}
+}
+
+func TestDataTableRecordImportedReadRemovesMissingAndRejectsDuplicatePrimaryResponses(t *testing.T) {
+	model := sampleDataTableRecordModel(nil, nil)
+	model.PrimaryValues = types.MapNull(types.StringType)
+	model.Values = types.MapNull(types.StringType)
+	model.RecordID = types.StringNull()
+
+	missing := &dataTableRecordResource{client: &fakeDataTableRecordClient{}, coordinator: newDataTableCoordinator()}
+	missingImport := &resource.ImportStateResponse{State: dataTableRecordState(t, model)}
+	missing.ImportState(context.Background(), resource.ImportStateRequest{ID: "import-instance:import-table:missing-record"}, missingImport)
+	missingRead := &resource.ReadResponse{State: missingImport.State}
+	missing.Read(context.Background(), resource.ReadRequest{State: missingImport.State}, missingRead)
+	if missingRead.Diagnostics.HasError() || !missingRead.State.Raw.IsNull() {
+		t.Fatalf("missing imported record was not removed: raw=%v diagnostics=%v", missingRead.State.Raw, missingRead.Diagnostics)
+	}
+
+	duplicate := &dataTableRecordResource{client: &fakeDataTableRecordClient{listPrimaryValues: func(_ context.Context, input *awsconnect.ListDataTablePrimaryValuesInput) (*awsconnect.ListDataTablePrimaryValuesOutput, error) {
+		if !reflect.DeepEqual(input.RecordIds, []string{"duplicate-record"}) {
+			t.Fatalf("duplicate test did not use record filter: %v", input.RecordIds)
+		}
+		primary := []connecttypes.PrimaryValueResponse{{AttributeName: aws.String("key"), Value: aws.String("value")}}
+		return &awsconnect.ListDataTablePrimaryValuesOutput{PrimaryValuesList: []connecttypes.RecordPrimaryValue{
+			{RecordId: aws.String("duplicate-record"), PrimaryValues: primary}, {RecordId: aws.String("duplicate-record"), PrimaryValues: primary},
+		}}, nil
+	}}, coordinator: newDataTableCoordinator()}
+	duplicateImport := &resource.ImportStateResponse{State: dataTableRecordState(t, model)}
+	duplicate.ImportState(context.Background(), resource.ImportStateRequest{ID: "import-instance:import-table:duplicate-record"}, duplicateImport)
+	duplicateRead := &resource.ReadResponse{State: duplicateImport.State}
+	duplicate.Read(context.Background(), resource.ReadRequest{State: duplicateImport.State}, duplicateRead)
+	if !duplicateRead.Diagnostics.HasError() || !strings.Contains(duplicateRead.Diagnostics.Errors()[0].Detail(), "duplicate primary-value responses") {
+		t.Fatalf("expected duplicate imported primary response diagnostic, got %v", duplicateRead.Diagnostics)
 	}
 }
 
@@ -406,6 +567,19 @@ func TestDataTableRecordRejectsRepeatedPaginationTokens(t *testing.T) {
 	_, err = implementation.readRemoteRecordByID(context.Background(), dataTableKey{instanceID: "instance", dataTableID: "table"}, "record")
 	if err == nil || !strings.Contains(err.Error(), "repeated data-table value pagination token") || valueCalls != 2 {
 		t.Fatalf("expected repeated value token rejection after two calls, calls=%d error=%v", valueCalls, err)
+	}
+
+	primaryByIDCalls := 0
+	implementation.client = &fakeDataTableRecordClient{listPrimaryValues: func(_ context.Context, input *awsconnect.ListDataTablePrimaryValuesInput) (*awsconnect.ListDataTablePrimaryValuesOutput, error) {
+		primaryByIDCalls++
+		if !reflect.DeepEqual(input.RecordIds, []string{"record"}) {
+			t.Fatalf("record ID filter was not forwarded: %v", input.RecordIds)
+		}
+		return &awsconnect.ListDataTablePrimaryValuesOutput{NextToken: aws.String("repeated")}, nil
+	}}
+	_, err = implementation.findPrimaryValuesByID(context.Background(), dataTableKey{instanceID: "instance", dataTableID: "table"}, "record")
+	if err == nil || !strings.Contains(err.Error(), "repeated data-table primary-value pagination token") || primaryByIDCalls != 2 {
+		t.Fatalf("expected repeated imported primary token rejection after two calls, calls=%d error=%v", primaryByIDCalls, err)
 	}
 }
 

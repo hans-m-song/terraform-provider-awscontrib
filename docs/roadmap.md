@@ -407,11 +407,11 @@ Status: Complete.
 - Goal: define `awscontrib_connect_data_table_record` for nonempty, possibly composite primary keys.
 - Scope: canonical primary-key map, authoritative non-primary value map, computed record ID, update/delete semantics, and import decision.
 - Constraints: ordinary records may not use the DEFAULT sentinel; primary-value slices are sorted lexicographically by attribute name; removing a managed value deletes the remote cell; overlapping cell ownership is unsupported.
-- Acceptance criteria: the full remote record value set is discovered during read so out-of-band values appear as drift; primary-key changes are replacement-only for the initial contract; import is omitted unless ownership can be reconstructed unambiguously.
+- Acceptance criteria: the full remote record value set is discovered during read so out-of-band values appear as drift; primary-key changes are replacement-only for the initial contract; the initial import decision is revisited by `M6-T06` after ownership reconstruction becomes verifiable.
 - Roles: architect, explorer, main agent.
 - Dependencies: `M6-T01`.
 - Verification gates: current AWS API and pinned SDK type audit.
-- Blockers: none. Read resolves the record ID from paginated primary values, then loads the complete remote record by that ID. Primary-key changes are replacement-only and import is omitted because the value ownership set cannot be reconstructed from an identifier alone.
+- Blockers: none. Read resolves the record ID from paginated primary values, then loads the complete remote record by that ID. The initial import omission was superseded by `M6-T06` after the record-ID lookup path established that both primary values and the complete authoritative value set can be reconstructed.
 - Parallel boundaries: implementation follows the stable combined-table client/locking boundary.
 
 ### M6-T04 — Implement composite data-table records
@@ -439,6 +439,19 @@ Status: Complete.
 - Verification gates: repository standard verification sequence plus final diff audit.
 - Blockers: none after implementation.
 - Parallel boundaries: independent testing and maintained documentation may proceed after source completion.
+
+### M6-T06 — Add non-default record import
+
+- Status: Complete.
+- Goal: permit safe adoption of existing non-default data-table records by stable AWS record ID.
+- Scope: import `instance_id:data_table_id:record_id`, reconstruct the composite primary-value map and complete authoritative value map during refresh, document migration behavior, and reject absent, ambiguous, or `DEFAULT` identities.
+- Constraints: import performs no mutation; imported state adopts every remote non-primary cell; identifiers are not encoded from delimiter-separated composite primary values; all reads paginate and detect repeated tokens.
+- Acceptance criteria: import seeds stable identity, first refresh reconstructs `primary_values`, `values`, and `record_id`, missing records are removed from state, malformed identifiers produce actionable diagnostics, and the generated resource documentation includes an import example.
+- Roles: executor, tester, scribe, main agent.
+- Dependencies: `M6-T04`, `M6-T05`.
+- Verification gates: focused import and pagination tests, full tests, focused race tests, build, lint, and two clean documentation generations.
+- Blockers: none.
+- Parallel boundaries: source and focused tests share one implementation boundary; documentation follows the compiled schema; independent verification begins after integration.
 
 ## Deferred
 
