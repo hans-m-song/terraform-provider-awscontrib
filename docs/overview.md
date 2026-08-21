@@ -8,12 +8,13 @@ The first implemented feature is an Amazon Connect queue/quick-connect associati
 
 ## Current state
 
-As of 2026-08-19, the provider bootstrap and the approved Amazon Connect lifecycle expansion are implemented:
+As of 2026-08-21, the provider bootstrap, the approved Amazon Connect lifecycle expansion, and process-local request hardening are implemented:
 
 - the Go module is `github.com/hans-m-song/terraform-provider-awscontrib`;
 - the provider type is `awscontrib` and server address is `registry.terraform.io/hans-m-song/awscontrib`;
 - provider configuration uses AWS SDK for Go v2 with optional `profile` and `region`;
 - `internal/conns` owns AWS configuration and client construction;
+- one configured provider process reuses one Amazon Connect SDK client and paces every physical request attempt by API operation;
 - `internal/service/connect` owns four resources and two exact-match data sources;
 - scaffold resources, data sources, actions, functions, and ephemeral resources have been removed;
 - registered resources manage queue/quick-connect associations, hours-of-operation overrides, combined data tables, and composite-key data-table records;
@@ -39,6 +40,27 @@ Documentation schema export is pinned to Terraform CLI 1.14.0. `terraform-plugin
 The compatibility baseline is Terraform CLI 1.0 or newer and Go 1.26. Protocol 6 officially supports Terraform 1.0 and later. Go 1.26 aligns with the current `terraform-provider-aws` development baseline as observed on 2026-08-18; the exact patch version must be pinned consistently in `go.mod`, `tools/go.mod`, CI, and contributor documentation during bootstrap.
 
 Provider configuration must support the AWS shared configuration and credentials files, including explicit `profile` selection. At implementation time, select the most well-supported maintained integration. Prefer stable AWS SDK for Go v2 APIs. Reuse a HashiCorp AWS configuration helper only if its then-current release status, maintenance, documentation, and upstream adoption make it better supported than direct SDK configuration. Record the evidence and pinned version; do not preserve a dependency merely because it was previously considered.
+
+## Connect request scheduling
+
+Amazon Connect normally limits each service API operation to a steady rate of 2 requests per second with a burst limit of 5, subject to documented exceptions and account-specific quota changes. Quotas are shared by AWS account and Region, rather than isolated by Connect instance. See [Amazon Connect API throttling quotas](https://docs.aws.amazon.com/connect/latest/adminguide/amazon-connect-service-limits.html#connect-api-throttling-quotas).
+
+Each configured provider process reuses one Connect SDK client. A Smithy `Finalize` middleware placed immediately after the AWS SDK `Retry` middleware paces every physical attempt, including retries, through an operation-specific 500-millisecond interval with burst 1. A process-wide semaphore permits at most two Connect attempts in flight. Both waits honor Terraform cancellation, while the standard AWS SDK retryer remains responsible for transient-error classification, jitter, and backoff.
+
+```text
+concurrent Terraform RPCs
+          |
+          v
+two-attempt process semaphore
+          |
+          v
+operation bucket: one attempt per 500 ms, burst 1
+          |
+          v
+Amazon Connect
+```
+
+This is deliberate best-effort request smoothing, not account-wide quota enforcement. Separate provider configurations, provider processes, Terraform runs, AWS providers, CLI commands, and external applications do not share the scheduler. Request reduction remains necessary: paginated operations use explicit page sizes, table refresh filters value reads to the concrete `DEFAULT` record, and record refreshes retain their record-ID filters.
 
 ## Implemented association contract
 

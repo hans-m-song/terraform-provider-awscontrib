@@ -18,6 +18,7 @@ import (
 const (
 	contactFlowModuleSearchNameMinLength = 2
 	contactFlowModuleSearchNameMaxLength = 25
+	maxContactFlowModulesPerPage         = 100
 )
 
 var _ datasource.DataSource = &contactFlowModuleDataSource{}
@@ -203,11 +204,13 @@ func (d *contactFlowModuleDataSource) Read(ctx context.Context, req datasource.R
 func (d *contactFlowModuleDataSource) searchContactFlowModules(ctx context.Context, instanceID, name string) ([]connecttypes.ContactFlowModule, error) {
 	input := &awsconnect.SearchContactFlowModulesInput{
 		InstanceId:     aws.String(instanceID),
+		MaxResults:     aws.Int32(maxContactFlowModulesPerPage),
 		SearchCriteria: contactFlowModuleSearchCriteria(name),
 	}
 
 	var modules []connecttypes.ContactFlowModule
 	var nextToken *string
+	seenTokens := make(map[string]struct{})
 	for {
 		input.NextToken = nextToken
 		output, err := d.client.SearchContactFlowModules(ctx, input)
@@ -222,9 +225,11 @@ func (d *contactFlowModuleDataSource) searchContactFlowModules(ctx context.Conte
 		if output.NextToken == nil || aws.ToString(output.NextToken) == "" {
 			return modules, nil
 		}
-		if nextToken != nil && aws.ToString(nextToken) == aws.ToString(output.NextToken) {
-			return nil, fmt.Errorf("amazon connect returned duplicate contact-flow-module pagination token %q", aws.ToString(output.NextToken))
+		token := aws.ToString(output.NextToken)
+		if _, repeated := seenTokens[token]; repeated {
+			return nil, fmt.Errorf("amazon connect returned duplicate contact-flow-module pagination token %q", token)
 		}
+		seenTokens[token] = struct{}{}
 		nextToken = output.NextToken
 	}
 }

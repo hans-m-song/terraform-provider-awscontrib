@@ -20,6 +20,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+const maxDataTablePrimaryValuesPerPage = 1000
+
 var _ resource.Resource = &dataTableRecordResource{}
 var _ resource.ResourceWithConfigure = &dataTableRecordResource{}
 var _ resource.ResourceWithImportState = &dataTableRecordResource{}
@@ -488,7 +490,7 @@ func (r *dataTableRecordResource) findRecordID(ctx context.Context, key dataTabl
 	for {
 		page, err := r.client.ListDataTablePrimaryValues(ctx, &awsconnect.ListDataTablePrimaryValuesInput{
 			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID),
-			PrimaryAttributeValues: dataTableRecordPrimaryFilters(primaryValues), NextToken: nextToken,
+			MaxResults: aws.Int32(maxDataTablePrimaryValuesPerPage), PrimaryAttributeValues: dataTableRecordPrimaryFilters(primaryValues), NextToken: nextToken,
 		})
 		if err != nil {
 			return "", fmt.Errorf("could not list data-table primary values: %w", err)
@@ -540,7 +542,8 @@ func (r *dataTableRecordResource) findPrimaryValuesByID(ctx context.Context, key
 	seenTokens := make(map[string]struct{})
 	for {
 		page, err := r.client.ListDataTablePrimaryValues(ctx, &awsconnect.ListDataTablePrimaryValuesInput{
-			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID), RecordIds: []string{recordID}, NextToken: nextToken,
+			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID),
+			MaxResults: aws.Int32(maxDataTablePrimaryValuesPerPage), RecordIds: []string{recordID}, NextToken: nextToken,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("could not list data-table primary values for record %q: %w", recordID, err)
@@ -626,7 +629,8 @@ func (r *dataTableRecordResource) readRemoteRecordByID(ctx context.Context, key 
 	seenTokens := make(map[string]struct{})
 	for {
 		page, err := r.client.ListDataTableValues(ctx, &awsconnect.ListDataTableValuesInput{
-			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID), RecordIds: []string{recordID}, NextToken: nextToken,
+			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID),
+			MaxResults: aws.Int32(maxDataTableValuesPerPage), RecordIds: []string{recordID}, NextToken: nextToken,
 		})
 		if err != nil {
 			return dataTableRemoteRecord{}, fmt.Errorf("could not list data-table record values: %w", err)

@@ -239,6 +239,9 @@ func TestListAssociationsPaginatesUntilEnd(t *testing.T) {
 	var tokens []string
 	client := &fakeAssociationClient{
 		list: func(_ context.Context, input *awsconnect.ListQueueQuickConnectsInput) (*awsconnect.ListQueueQuickConnectsOutput, error) {
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxQueueQuickConnectsPerPage {
+				t.Fatalf("expected queue page size %d, got %#v", maxQueueQuickConnectsPerPage, input.MaxResults)
+			}
 			tokens = append(tokens, aws.ToString(input.NextToken))
 			if input.NextToken == nil {
 				return &awsconnect.ListQueueQuickConnectsOutput{
@@ -258,6 +261,23 @@ func TestListAssociationsPaginatesUntilEnd(t *testing.T) {
 	}
 	if len(ids) != 2 || len(tokens) != 2 || tokens[0] != "" || tokens[1] != "page-2" {
 		t.Fatalf("unexpected paginated result: ids=%v tokens=%v", ids, tokens)
+	}
+}
+
+func TestListAssociationsRejectsRepeatedPaginationToken(t *testing.T) {
+	calls := 0
+	client := &fakeAssociationClient{
+		list: func(_ context.Context, input *awsconnect.ListQueueQuickConnectsInput) (*awsconnect.ListQueueQuickConnectsOutput, error) {
+			calls++
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxQueueQuickConnectsPerPage {
+				t.Fatalf("expected queue page size %d, got %#v", maxQueueQuickConnectsPerPage, input.MaxResults)
+			}
+			return &awsconnect.ListQueueQuickConnectsOutput{NextToken: aws.String("repeated")}, nil
+		},
+	}
+	_, err := newTestAssociationsResource(client).listAssociations(context.Background(), associationIdentity{})
+	if err == nil || !strings.Contains(err.Error(), "duplicate queue quick-connect pagination token") || calls != 2 {
+		t.Fatalf("expected bounded repeated-token error, calls=%d err=%v", calls, err)
 	}
 }
 

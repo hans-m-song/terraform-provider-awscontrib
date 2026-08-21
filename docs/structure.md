@@ -7,7 +7,7 @@
 ├── main.go                         provider server entry point
 ├── internal/
 │   ├── provider/                   provider schema, configuration, registration
-│   ├── conns/                      AWS SDK configuration and client factory
+│   ├── conns/                      AWS SDK configuration, shared clients, request scheduling
 │   └── service/connect/            Connect resources, data sources, coordinators, tests
 ├── examples/                       tfplugindocs example inputs
 ├── docs/                           generated references plus project docs
@@ -34,7 +34,9 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
 │   │   └── provider_test.go
 │   ├── conns/
 │   │   ├── config.go               AWS SDK v2 configuration
-│   │   └── client.go               service client factory
+│   │   ├── client.go               cached service client factory
+│   │   ├── middleware.go           per-attempt Connect scheduling middleware
+│   │   └── scheduler.go            operation pacing and in-flight bound
 │   └── service/
 │       └── connect/
 │           ├── client.go           narrow Connect interfaces
@@ -89,7 +91,7 @@ Amazon Connect API
 |---|---|---|
 | `main` | server startup and build version | provider schema or AWS behavior |
 | `provider` | provider identity, configuration, constructor registration | Amazon Connect mapping logic |
-| `conns` | AWS SDK configuration and service client construction | Terraform schemas or service-specific CRUD/read logic |
+| `conns` | AWS SDK configuration, cached service client construction, and process-local request scheduling | Terraform schemas or service-specific CRUD/read logic |
 | `service/connect` | schemas, API requests, pagination, mapping, diagnostics, tests | provider-wide configuration or other AWS services |
 | `examples` | executable practitioner configurations used by documentation generation | generated prose |
 | generated `docs/*` reference directories | generated provider reference output | hand-maintained design decisions |
@@ -107,6 +109,22 @@ table coordinator key: instance + data table
 ```
 
 Service packages must not import `internal/provider` or sibling services. Shared packages require more than one demonstrated consumer.
+
+## Request scheduling boundary
+
+All Connect resource and data-source constructors configured by one provider instance receive the same `conns.Client`, whose `Connect` method returns one cached SDK client. Its middleware runs after the SDK retry middleware so every physical attempt is scheduled independently.
+
+```text
+resource/data-source clients
+           |
+           v
+cached awsconnect.Client
+           |
+           v
+per-operation pacing + process-wide in-flight bound
+```
+
+Scheduling is process-local. It does not coordinate provider aliases that Terraform runs in independent processes, simultaneous Terraform runs, or other Connect callers. Service code must therefore continue to batch, filter, and paginate efficiently rather than treating pacing as quota ownership.
 
 ## Data-source test boundary
 

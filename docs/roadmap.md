@@ -453,6 +453,83 @@ Status: Complete.
 - Blockers: none.
 - Parallel boundaries: source and focused tests share one implementation boundary; documentation follows the compiled schema; independent verification begins after integration.
 
+## M7 — Connect request-efficiency hardening
+
+Goal: make normal Terraform concurrency safe for Amazon Connect's low per-operation API quotas without requiring provider-specific Terraform CLI settings.
+
+Status: Complete.
+
+### M7-T01 — Establish the operation scheduling contract
+
+- Status: Complete.
+- Goal: define one process-local scheduling boundary for every Amazon Connect request made by the provider.
+- Scope: current operation inventory, documented rate and burst quotas, shared client ownership, cancellation, physical retry attempts, and cross-process limitations.
+- Constraints: Amazon Connect quotas are account-and-Region-wide while Terraform may start independent provider processes for aliases or separate runs; do not claim global quota enforcement; do not add filesystem, daemon, or distributed coordination.
+- Acceptance criteria: one provider process shares operation-specific pacing across every resource and data source; each physical AWS attempt is paced; at most two Connect requests are in flight; defaults are 2 requests per second per current operation with burst 1; waiting honors context cancellation.
+- Roles: explorer, executor, main agent.
+- Dependencies: `M4`, `M5`, `M6`.
+- Verification gates: current AWS quota evidence, SDK middleware-stage verification, deterministic scheduler tests, and race tests.
+- Blockers: none. The pinned SDK trace verified that Finalize middleware immediately after `Retry` executes once per physical attempt; a fairness correction moved operation pacing before global-slot acquisition so queued same-operation requests do not occupy both slots.
+- Parallel boundaries: the connection/client boundary and scheduler tests are one ownership unit; service request reduction can be investigated independently.
+
+### M7-T02 — Reduce requests across current Connect surfaces
+
+- Status: Complete.
+- Goal: eliminate unnecessary requests and reduce pagination without weakening state ownership or drift detection.
+- Scope: all registered Connect resources and data sources; filtered data-table DEFAULT reads; narrow record filters; explicit page sizes; batch-limit and redundant-refresh audit.
+- Constraints: preserve complete pagination, exact-match semantics, unrelated association preservation, authoritative table and record ownership, lock-version handling, and recoverable partial mutations.
+- Acceptance criteria: table refresh requests only `RecordId` `DEFAULT`; record reads remain narrowly filtered; every paginator has a verified page-size decision; batch-capable mutations use documented limits; retained pre-reads and post-reads have correctness justification.
+- Roles: explorer, executor, tester, main agent.
+- Dependencies: `M7-T01` contract may proceed in parallel until integration.
+- Verification gates: exact request-input and request-count tests for every changed surface, focused lifecycle tests, and full unit tests.
+- Blockers: none. Request-count tests verify explicit page sizes and filters; unchanged table metadata and DEFAULT values avoid redundant mutations and lock-refresh reads.
+- Parallel boundaries: service source and fake-client tests are one edit boundary distinct from `internal/conns`.
+
+### M7-T03 — Verify and document request hardening
+
+- Status: Complete.
+- Goal: independently verify pacing, cancellation, retry-attempt accounting, request reduction, and preserved lifecycle behavior.
+- Scope: focused concurrency and race tests, full repository gates, architecture documentation, durable decisions, and session handoff.
+- Constraints: no real AWS calls; generated provider reference pages are not hand-edited; process-local behavior must not be described as account-wide enforcement.
+- Acceptance criteria: focused and full tests, race tests, build, lint, two deterministic generations, and diff checks pass; documentation states the provider-process boundary and remaining collision cases.
+- Roles: tester, scribe, main agent.
+- Dependencies: `M7-T01`, `M7-T02`.
+- Verification gates: repository standard fixture-free sequence plus independent request-count and concurrency audit.
+- Blockers: none. Full tests, focused race tests, build, lint, two deterministic generations, and diff checks passed without real AWS calls.
+- Parallel boundaries: independent verification begins after the source checkpoint; maintained documentation follows verified behavior.
+
+## M8 — Resource name exposure
+
+Goal: expose a useful name attribute from each resource where Amazon Connect provides a stable remote name.
+
+Status: Complete.
+
+### M8-T01 — Define the resource-name contract
+
+- Status: Complete.
+- Goal: determine the remote name, lookup operation, schema mode, and drift semantics for every registered resource.
+- Scope: audit `awscontrib_connect_queue_quick_connect_associations`, `awscontrib_connect_hours_of_operation_override`, `awscontrib_connect_data_table`, and `awscontrib_connect_data_table_record`; preserve the existing `name` attributes on hours overrides and data tables.
+- Constraints: `name` means the AWS remote object's name; do not expose Terraform configuration labels, parent-resource names, or synthetic values where the managed remote object has no intrinsic name; do not add an API lookup whose request cost is disproportionate to the diagnostic value without explicit approval.
+- Acceptance criteria: each resource is classified as already named, remotely nameable through an existing response, remotely nameable only through an additional lookup, or not meaningfully nameable; the resulting schema and refresh behavior are explicit and testable.
+- Roles: explorer, architect, main agent.
+- Dependencies: `M7` so request-cost decisions use the completed scheduling and request inventory.
+- Verification gates: current AWS API and pinned SDK audit plus Framework schema review.
+- Blockers: none. The owner confirmed that `name` means the AWS remote name when applicable. Hours overrides and data tables already expose their remote names; association-edge and record resources have no intrinsic AWS resource name and must remain unnamed.
+- Parallel boundaries: read-only contract investigation may begin after `M7` verification; implementation requires the contract decision.
+
+### M8-T02 — Implement and verify resource names
+
+- Status: Complete.
+- Goal: implement the approved `M8-T01` name attributes and refresh mapping where any applicable name is missing.
+- Scope: schemas, API mapping, drift behavior, tests, examples, generated reference documentation, and maintained documentation.
+- Constraints: no synthetic data-source-style identity; no hand-edited generated reference pages; preserve import compatibility and avoid unnecessary AWS requests.
+- Acceptance criteria: every resource classified as remotely nameable exposes the approved `name` attribute consistently after create, read, and import; unnamed resource kinds remain explicitly documented rather than populated with misleading values.
+- Roles: executor, tester, scribe, main agent.
+- Dependencies: `M8-T01`.
+- Verification gates: focused schema and lifecycle tests, full tests, race tests where applicable, build, lint, and two deterministic generations.
+- Blockers: none. The audit found no missing applicable attribute: hours overrides and data tables already expose AWS names, while association-edge and record resources have no intrinsic AWS name. No schema or API changes were required.
+- Parallel boundaries: implementation ownership follows the affected resource/test pairs; documentation follows stable schemas.
+
 ## Deferred
 
 - Actions, functions, and ephemeral resources remain out of scope unless a future milestone establishes a concrete use case.

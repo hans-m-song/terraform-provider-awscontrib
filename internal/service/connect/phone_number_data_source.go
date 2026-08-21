@@ -15,7 +15,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-const maxPhoneNumberPrefixLength = 11
+const (
+	maxPhoneNumberPrefixLength = 11
+	maxPhoneNumbersPerPage     = 1000
+)
 
 var _ datasource.DataSource = &phoneNumberDataSource{}
 var _ datasource.DataSourceWithConfigure = &phoneNumberDataSource{}
@@ -220,11 +223,13 @@ func (d *phoneNumberDataSource) Read(ctx context.Context, req datasource.ReadReq
 func (d *phoneNumberDataSource) listPhoneNumbers(ctx context.Context, instanceID, phoneNumber string) ([]connecttypes.ListPhoneNumbersSummary, error) {
 	prefix := phoneNumberPrefix(phoneNumber)
 	var nextToken *string
+	seenTokens := make(map[string]struct{})
 	var matches []connecttypes.ListPhoneNumbersSummary
 
 	for {
 		output, err := d.client.ListPhoneNumbersV2(ctx, &awsconnect.ListPhoneNumbersV2Input{
 			InstanceId:        aws.String(instanceID),
+			MaxResults:        aws.Int32(maxPhoneNumbersPerPage),
 			NextToken:         nextToken,
 			PhoneNumberPrefix: aws.String(prefix),
 		})
@@ -244,9 +249,11 @@ func (d *phoneNumberDataSource) listPhoneNumbers(ctx context.Context, instanceID
 		if output.NextToken == nil || aws.ToString(output.NextToken) == "" {
 			return matches, nil
 		}
-		if nextToken != nil && aws.ToString(nextToken) == aws.ToString(output.NextToken) {
-			return nil, fmt.Errorf("amazon connect returned duplicate phone-number pagination token %q", aws.ToString(output.NextToken))
+		token := aws.ToString(output.NextToken)
+		if _, repeated := seenTokens[token]; repeated {
+			return nil, fmt.Errorf("amazon connect returned duplicate phone-number pagination token %q", token)
 		}
+		seenTokens[token] = struct{}{}
 		nextToken = output.NextToken
 	}
 }

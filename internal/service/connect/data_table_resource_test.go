@@ -412,6 +412,9 @@ func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
 	client := &fakeDataTableClient{
 		listAttributes: func(_ context.Context, input *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
 			attributePages++
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableAttributesPerPage {
+				t.Fatalf("expected data-table attribute page size %d, got %#v", maxDataTableAttributesPerPage, input.MaxResults)
+			}
 			if input.NextToken == nil {
 				return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("key"), ValueType: connecttypes.DataTableAttributeValueTypeText, Primary: true}}, NextToken: aws.String("next")}, nil
 			}
@@ -419,6 +422,12 @@ func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
 		},
 		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
 			valuePages++
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage {
+				t.Fatalf("expected data-table value page size %d, got %#v", maxDataTableValuesPerPage, input.MaxResults)
+			}
+			if !reflect.DeepEqual(input.RecordIds, []string{defaultDataTableRecordID}) {
+				t.Fatalf("expected DEFAULT record filter on every page, got %v", input.RecordIds)
+			}
 			if input.NextToken == nil {
 				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("answer"), RecordId: aws.String("ordinary"), Value: aws.String("ignored")}}, NextToken: aws.String("next")}, nil
 			}
@@ -439,6 +448,49 @@ func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
 	}
 	if got := answer.ValueString(); got != "42" {
 		t.Fatalf("unexpected reconstructed DEFAULT %q", got)
+	}
+}
+
+func TestDataTableUpdateSkipsUnchangedMetadata(t *testing.T) {
+	remote := sampleRemoteDataTable()
+	remote.Description = aws.String("")
+	metadataCalls := 0
+	describeCalls := 0
+	client := &fakeDataTableClient{
+		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
+			describeCalls++
+			return &awsconnect.DescribeDataTableOutput{DataTable: remote}, nil
+		},
+		updateMetadata: func(context.Context, *awsconnect.UpdateDataTableMetadataInput) (*awsconnect.UpdateDataTableMetadataOutput, error) {
+			metadataCalls++
+			return &awsconnect.UpdateDataTableMetadataOutput{}, nil
+		},
+		listAttributes: func(_ context.Context, input *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableAttributesPerPage {
+				t.Fatalf("expected data-table attribute page size %d, got %#v", maxDataTableAttributesPerPage, input.MaxResults)
+			}
+			return &awsconnect.ListDataTableAttributesOutput{}, nil
+		},
+		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage || !reflect.DeepEqual(input.RecordIds, []string{defaultDataTableRecordID}) {
+				t.Fatalf("unexpected DEFAULT value list request: %#v", input)
+			}
+			return &awsconnect.ListDataTableValuesOutput{}, nil
+		},
+	}
+	prior := sampleDataTableModel(nil, nil)
+	planned := sampleDataTableModel(nil, nil)
+	response := &resource.UpdateResponse{State: dataTableState(t, prior)}
+	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
+	implementation.Update(context.Background(), resource.UpdateRequest{State: dataTableState(t, prior), Plan: dataTablePlan(t, planned)}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected unchanged-metadata update diagnostics: %v", response.Diagnostics)
+	}
+	if metadataCalls != 0 {
+		t.Fatalf("expected unchanged metadata to avoid UpdateDataTableMetadata, calls=%d", metadataCalls)
+	}
+	if describeCalls != 2 {
+		t.Fatalf("expected unchanged DEFAULT values to avoid lock refresh, describe_calls=%d", describeCalls)
 	}
 }
 

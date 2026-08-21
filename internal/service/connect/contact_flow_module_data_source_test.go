@@ -175,6 +175,9 @@ func TestContactFlowModuleDataSourceReadPaginatesExactMatchesAndMapsFields(t *te
 	}
 	client := &fakeContactFlowModuleClient{
 		search: func(_ context.Context, input *awsconnect.SearchContactFlowModulesInput) (*awsconnect.SearchContactFlowModulesOutput, error) {
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxContactFlowModulesPerPage {
+				t.Fatalf("expected contact-flow-module page size %d, got %#v", maxContactFlowModulesPerPage, input.MaxResults)
+			}
 			tokens = append(tokens, aws.ToString(input.NextToken))
 			if aws.ToString(input.InstanceId) != contactFlowModuleDataSourceInstanceID {
 				t.Fatalf("unexpected instance ID %q", aws.ToString(input.InstanceId))

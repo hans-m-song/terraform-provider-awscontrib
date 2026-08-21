@@ -21,7 +21,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-const maxQuickConnectIDsPerRequest = 50
+const (
+	maxQuickConnectIDsPerRequest = 50
+	maxQueueQuickConnectsPerPage = 100
+)
 
 var _ resource.Resource = &queueQuickConnectAssociationsResource{}
 var _ resource.ResourceWithConfigure = &queueQuickConnectAssociationsResource{}
@@ -418,10 +421,12 @@ func (r *queueQuickConnectAssociationsResource) mutateAssociations(ctx context.C
 func (r *queueQuickConnectAssociationsResource) listAssociations(ctx context.Context, identity associationIdentity) (map[string]struct{}, error) {
 	remoteIDs := make(map[string]struct{})
 	var nextToken *string
+	seenTokens := make(map[string]struct{})
 	for {
 		output, err := r.client.ListQueueQuickConnects(ctx, &awsconnect.ListQueueQuickConnectsInput{
 			InstanceId: aws.String(identity.instanceID),
 			QueueId:    aws.String(identity.queueID),
+			MaxResults: aws.Int32(maxQueueQuickConnectsPerPage),
 			NextToken:  nextToken,
 		})
 		if err != nil {
@@ -441,6 +446,11 @@ func (r *queueQuickConnectAssociationsResource) listAssociations(ctx context.Con
 		if output.NextToken == nil || aws.ToString(output.NextToken) == "" {
 			return remoteIDs, nil
 		}
+		token := aws.ToString(output.NextToken)
+		if _, repeated := seenTokens[token]; repeated {
+			return nil, fmt.Errorf("amazon connect returned duplicate queue quick-connect pagination token %q", token)
+		}
+		seenTokens[token] = struct{}{}
 		nextToken = output.NextToken
 	}
 }

@@ -228,6 +228,9 @@ func TestDataTableRecordReadPaginatesExactMatchAndSurfacesWholeRecordDrift(t *te
 	client := &fakeDataTableRecordClient{
 		listPrimaryValues: func(_ context.Context, input *awsconnect.ListDataTablePrimaryValuesInput) (*awsconnect.ListDataTablePrimaryValuesOutput, error) {
 			primaryPage++
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTablePrimaryValuesPerPage {
+				t.Fatalf("expected primary-value page size %d, got %#v", maxDataTablePrimaryValuesPerPage, input.MaxResults)
+			}
 			if primaryPage == 1 {
 				got := aws.ToString(input.PrimaryAttributeValues[0].AttributeName)
 				if input.NextToken != nil || got != "first" {
@@ -249,6 +252,9 @@ func TestDataTableRecordReadPaginatesExactMatchAndSurfacesWholeRecordDrift(t *te
 		},
 		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
 			valuePage++
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage {
+				t.Fatalf("expected record-value page size %d, got %#v", maxDataTableValuesPerPage, input.MaxResults)
+			}
 			if !reflect.DeepEqual(input.RecordIds, []string{"record-1"}) {
 				t.Fatalf("record filter not forwarded: %v", input.RecordIds)
 			}
@@ -293,6 +299,9 @@ func TestDataTableRecordImportedReadReconstructsPrimaryValuesAndRefreshesRecord(
 	client := &fakeDataTableRecordClient{
 		listPrimaryValues: func(_ context.Context, input *awsconnect.ListDataTablePrimaryValuesInput) (*awsconnect.ListDataTablePrimaryValuesOutput, error) {
 			primaryCalls++
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTablePrimaryValuesPerPage {
+				t.Fatalf("expected imported primary-value page size %d, got %#v", maxDataTablePrimaryValuesPerPage, input.MaxResults)
+			}
 			if !reflect.DeepEqual(input.RecordIds, []string{"record-imported"}) || len(input.PrimaryAttributeValues) != 0 {
 				t.Fatalf("unexpected imported primary-value request: %#v", input)
 			}
@@ -313,6 +322,9 @@ func TestDataTableRecordImportedReadReconstructsPrimaryValuesAndRefreshesRecord(
 		},
 		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
 			valueCalls++
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage {
+				t.Fatalf("expected imported record-value page size %d, got %#v", maxDataTableValuesPerPage, input.MaxResults)
+			}
 			if !reflect.DeepEqual(input.RecordIds, []string{"record-imported"}) {
 				t.Fatalf("imported record filter not forwarded: %v", input.RecordIds)
 			}
@@ -454,6 +466,9 @@ func TestDataTableRecordCreateRefreshesSuccessfulRecord(t *testing.T) {
 			}}, nil
 		},
 		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage {
+				t.Fatalf("expected created record-value page size %d, got %#v", maxDataTableValuesPerPage, input.MaxResults)
+			}
 			if !reflect.DeepEqual(input.RecordIds, []string{"record-created"}) {
 				t.Fatalf("create refresh used wrong record filter: %v", input.RecordIds)
 			}

@@ -74,7 +74,11 @@ var dataTableAttributeTypes = map[string]attr.Type{
 	"primary":     types.BoolType,
 }
 
-const defaultDataTableRecordID = "DEFAULT"
+const (
+	defaultDataTableRecordID      = "DEFAULT"
+	maxDataTableAttributesPerPage = 1000
+	maxDataTableValuesPerPage     = 1000
+)
 
 func NewDataTableResource() resource.Resource {
 	return &dataTableResource{coordinator: newDataTableCoordinator()}
@@ -333,25 +337,29 @@ func (r *dataTableResource) Update(ctx context.Context, req resource.UpdateReque
 		if err != nil {
 			return err
 		}
-		if _, err := r.client.UpdateDataTableMetadata(ctx, &awsconnect.UpdateDataTableMetadataInput{
-			DataTableId:    aws.String(key.dataTableID),
-			InstanceId:     aws.String(key.instanceID),
-			Name:           aws.String(configuration.name),
-			Description:    configuration.description,
-			TimeZone:       aws.String(configuration.timeZone),
-			ValueLockLevel: connecttypes.DataTableLockLevel(configuration.valueLockLevel),
-		}); err != nil {
-			return fmt.Errorf("could not update data-table metadata: %w", err)
+		if !dataTableMetadataEqual(remote.table, configuration) {
+			if _, err := r.client.UpdateDataTableMetadata(ctx, &awsconnect.UpdateDataTableMetadataInput{
+				DataTableId:    aws.String(key.dataTableID),
+				InstanceId:     aws.String(key.instanceID),
+				Name:           aws.String(configuration.name),
+				Description:    configuration.description,
+				TimeZone:       aws.String(configuration.timeZone),
+				ValueLockLevel: connecttypes.DataTableLockLevel(configuration.valueLockLevel),
+			}); err != nil {
+				return fmt.Errorf("could not update data-table metadata: %w", err)
+			}
 		}
 		if err := r.reconcileAttributesBeforeDefaults(ctx, key, remote.attributes, configuration.attributes); err != nil {
 			return err
 		}
-		remote, err = r.readRemoteSnapshot(ctx, key)
-		if err != nil {
-			return fmt.Errorf("could not refresh data-table locks before DEFAULT reconciliation: %w", err)
-		}
-		if err := r.reconcileDefaultValues(ctx, key, remote.defaultValues, configuration.defaultValues); err != nil {
-			return err
+		if !dataTableDefaultValuesEqual(remote.defaultValues, configuration.defaultValues) {
+			remote, err = r.readRemoteSnapshot(ctx, key)
+			if err != nil {
+				return fmt.Errorf("could not refresh data-table locks before DEFAULT reconciliation: %w", err)
+			}
+			if err := r.reconcileDefaultValues(ctx, key, remote.defaultValues, configuration.defaultValues); err != nil {
+				return err
+			}
 		}
 		if err := r.deleteRemovedAttributes(ctx, key, remote.attributes, configuration.attributes); err != nil {
 			return err
@@ -576,7 +584,10 @@ func (r *dataTableResource) readRemoteSnapshot(ctx context.Context, key dataTabl
 	var nextToken *string
 	seenAttributeTokens := make(map[string]struct{})
 	for {
-		page, err := r.client.ListDataTableAttributes(ctx, &awsconnect.ListDataTableAttributesInput{DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID), NextToken: nextToken})
+		page, err := r.client.ListDataTableAttributes(ctx, &awsconnect.ListDataTableAttributesInput{
+			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID),
+			MaxResults: aws.Int32(maxDataTableAttributesPerPage), NextToken: nextToken,
+		})
 		if err != nil {
 			return dataTableRemoteSnapshot{}, fmt.Errorf("could not list data-table attributes: %w", err)
 		}
@@ -607,7 +618,10 @@ func (r *dataTableResource) readRemoteSnapshot(ctx context.Context, key dataTabl
 	nextToken = nil
 	seenValueTokens := make(map[string]struct{})
 	for {
-		page, err := r.client.ListDataTableValues(ctx, &awsconnect.ListDataTableValuesInput{DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID), NextToken: nextToken})
+		page, err := r.client.ListDataTableValues(ctx, &awsconnect.ListDataTableValuesInput{
+			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID),
+			MaxResults: aws.Int32(maxDataTableValuesPerPage), RecordIds: []string{defaultDataTableRecordID}, NextToken: nextToken,
+		})
 		if err != nil {
 			return dataTableRemoteSnapshot{}, fmt.Errorf("could not list data-table values: %w", err)
 		}
@@ -638,6 +652,26 @@ func (r *dataTableResource) readRemoteSnapshot(ctx context.Context, key dataTabl
 		seenValueTokens[token] = struct{}{}
 	}
 	return dataTableRemoteSnapshot{table: *described.DataTable, attributes: attributes, defaultValues: defaultValues}, nil
+}
+
+func dataTableMetadataEqual(remote connecttypes.DataTable, desired dataTableConfiguration) bool {
+	return aws.ToString(remote.Name) == desired.name &&
+		aws.ToString(remote.Description) == aws.ToString(desired.description) &&
+		aws.ToString(remote.TimeZone) == desired.timeZone &&
+		string(remote.ValueLockLevel) == desired.valueLockLevel
+}
+
+func dataTableDefaultValuesEqual(remote map[string]dataTableRemoteDefault, desired map[string]string) bool {
+	if len(remote) != len(desired) {
+		return false
+	}
+	for name, value := range desired {
+		current, ok := remote[name]
+		if !ok || current.value != value {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *dataTableResource) readRemote(ctx context.Context, key dataTableKey) (dataTableModel, error) {

@@ -149,6 +149,9 @@ func TestPhoneNumberDataSourceListPaginatesAndExactMatches(t *testing.T) {
 	var tokens []string
 	client := &fakePhoneNumberClient{
 		list: func(_ context.Context, input *awsconnect.ListPhoneNumbersV2Input) (*awsconnect.ListPhoneNumbersV2Output, error) {
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxPhoneNumbersPerPage {
+				t.Fatalf("expected phone-number page size %d, got %#v", maxPhoneNumbersPerPage, input.MaxResults)
+			}
 			tokens = append(tokens, aws.ToString(input.NextToken))
 			if input.NextToken == nil {
 				if aws.ToString(input.InstanceId) != phoneDataSourceInstanceID {

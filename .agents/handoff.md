@@ -2,11 +2,11 @@
 
 ## Updated
 
-2026-08-20, Australia/Brisbane.
+2026-08-21, Australia/Brisbane.
 
 ## Objective and outcome
 
-Milestones `M4`, `M5`, and `M6` are implemented and fixture-free verified. The provider now registers four Amazon Connect resources and two exact-match data sources. Plural quick-connect discovery remains separately proposed as `M2`.
+Milestones `M4` through `M7` are implemented and fixture-free verified. The provider now paces every Connect SDK attempt within one configured provider process and reduces requests across all registered surfaces. Plural quick-connect discovery remains proposed as `M2`; resource-name exposure is proposed as `M8`.
 
 ## Registered public surfaces
 
@@ -23,6 +23,11 @@ Data sources:
 - `awscontrib_connect_contact_flow_module`
 
 ## Completed work
+
+- Reused one Amazon Connect SDK client per configured provider process and added operation-specific pacing at 2 requests per second with burst 1, applied to every physical SDK attempt including retries.
+- Limited one provider process to two in-flight Connect attempts. Pacing precedes slot acquisition so queued requests for one API do not starve independent operations; cancellation releases waiters without background goroutines.
+- Set explicit page sizes across current Connect paginators, filtered table DEFAULT reads at the API using `RecordIds: ["DEFAULT"]`, retained record-ID filters, and added repeated-token protection to queue pagination.
+- Avoided unchanged table metadata mutations and unnecessary intermediate DEFAULT lock refreshes while retaining authoritative final refresh and changed-default lock handling.
 
 - Made `quick_connect_ids` mutable in place. Update removes previously owned IDs absent from the plan, then adds missing planned IDs under the queue-scoped coordinator. Requests remain batched at 50 and unrelated associations are preserved.
 - Added exact phone-number lookup through fully paginated `ListPhoneNumbersV2`, a conservative 11-character server prefix, and full-number client-side equality.
@@ -42,12 +47,13 @@ Data sources:
 - Changing a table attribute from primary to non-primary replaces the table because the SDK cannot serialize `Primary:false`. Attribute map-key renames are delete/create and can remove values.
 - Record import adopts every remote non-primary cell. Configuration must include every value that should be preserved because a later authoritative plan may delete omitted cells.
 - Queue/table coordinators are provider-process-local; they do not serialize separate Terraform processes or states.
+- Connect scheduling is also provider-process-local. Aliased provider configurations in independent processes, concurrent Terraform runs, other AWS clients, and account-specific lower quotas can still collide with the account-and-Region service quota.
 
 ## Verification state
 
 Parent verification passed:
 
-- `make test` with Connect coverage 81.2% and provider coverage 95.7%;
+- `make test` with Connect coverage 81.4%, connections coverage 87.3%, and provider coverage 95.7%;
 - full ordinary and race tests independently, plus focused import verification;
 - `go build ./...`;
 - `make lint` with zero issues;
@@ -65,3 +71,4 @@ Independent verification passed all feature-level tests and race checks. Its def
 - Review the diff, then commit only the intended provider files while excluding `handler.js`.
 - If release publication is desired, rerun the existing signed release checklist after commit/tag authorization.
 - If feature work continues, `M2` plural quick-connect discovery remains the next proposed milestone.
+- `M8` resource-name exposure is complete without source changes. Hours overrides and data tables already expose AWS names; association edges and records have no intrinsic AWS resource names and remain unnamed.
