@@ -2,11 +2,11 @@
 
 ## Updated
 
-2026-08-21, Australia/Brisbane.
+2026-08-24, Australia/Brisbane.
 
 ## Objective and outcome
 
-Milestones `M4` through `M7` are implemented and fixture-free verified. The provider now paces every Connect SDK attempt within one configured provider process and reduces requests across all registered surfaces. Plural quick-connect discovery remains proposed as `M2`; resource-name exposure is proposed as `M8`.
+Milestone `M9` is implemented and fixture-free verified. Stable computed data-table and record identities now remain known during in-place updates, preventing false replacement of dependent records. Plural quick-connect discovery remains proposed as `M2`; resource-name exposure was completed as `M8` without source changes.
 
 ## Registered public surfaces
 
@@ -23,6 +23,9 @@ Data sources:
 - `awscontrib_connect_contact_flow_module`
 
 ## Completed work
+
+- Added stable plan behavior for computed data-table `id`/`arn` and record `record_id` using Terraform Plugin Framework `UseStateForUnknown` modifiers.
+- Added executable tests proving identities remain known during update and unknown during creation, changed known `primary_values` still replace records, and ordinary `values` remain mutable in place.
 
 - Reused one Amazon Connect SDK client per configured provider process and added operation-specific pacing at 2 requests per second with burst 1, applied to every physical SDK attempt including retries.
 - Limited one provider process to two in-flight Connect attempts. Pacing precedes slot acquisition so queued requests for one API do not starve independent operations; cancellation releases waiters without background goroutines.
@@ -51,6 +54,8 @@ Data sources:
 
 ## Verification state
 
+For `M9-T01`, focused modifier tests, the full unit suite, independent Connect race tests, formatting, lint, and diff checks passed. Lint required a writable cache under `/private/tmp`; it reported zero issues and exited successfully. No AWS calls were made.
+
 Parent verification passed:
 
 - `make test` with Connect coverage 81.4%, connections coverage 87.3%, and provider coverage 95.7%;
@@ -64,7 +69,7 @@ Independent verification passed all feature-level tests and race checks. Its def
 
 ## Working tree and next actions
 
-- The M4–M6 source, tests, examples, generated references, and maintained documentation are intentionally uncommitted for owner review.
+- The M4–M9 source, tests, examples, generated references, and maintained documentation are intentionally uncommitted for owner review.
 - `internal/service/connect/handler.js` is an unrelated owner file. It was never read or modified and must not be staged without explicit owner direction.
 - `data_tables_awscontrib.tf` is a parallel conversion of the owner-supplied, untracked `data_tables.tf`; the source file was not modified. `docs/runbooks/migrate-data-tables-to-awscontrib.md` describes the migration gates and rollback.
 - Record import is now implemented, removing the provider-side migration blocker. The migration remains an operator-controlled state transition: discover each stable record ID, import every table and record, and approve all targeted plans before removing any old AWSCC state address.

@@ -530,6 +530,25 @@ Status: Complete.
 - Blockers: none. The audit found no missing applicable attribute: hours overrides and data tables already expose AWS names, while association-edge and record resources have no intrinsic AWS name. No schema or API changes were required.
 - Parallel boundaries: implementation ownership follows the affected resource/test pairs; documentation follows stable schemas.
 
+## M9 — Stable data-table identity planning
+
+Goal: prevent in-place data-table and record updates from producing false replacement plans for dependent records.
+
+Status: Complete.
+
+### M9-T01 — Preserve stable computed identities during updates
+
+- Status: Complete.
+- Goal: retain known data-table and record identities in plans when the corresponding remote object is not being replaced.
+- Scope: computed data-table ID and ARN, computed record ID, and focused schema/plan-modifier tests.
+- Constraints: creation must retain unknown computed identities; genuine replacement of a table identity or record primary key must remain replacement-only; do not change lifecycle ownership or AWS requests.
+- Acceptance criteria: an in-place table update preserves its known ID and ARN in the plan; an in-place record update preserves its known record ID; a dependent record no longer sees its table ID become unknown solely because its parent receives an in-place update.
+- Roles: executor, tester, main agent.
+- Dependencies: `M6`.
+- Verification gates: focused schema and plan-modifier tests, full unit tests, formatting, and lint.
+- Blockers: none. Computed data-table ID/ARN and record ID now retain known prior state during updates while remaining unknown during creation. Executable tests preserve replacement for changed known `primary_values` and in-place behavior for ordinary `values`.
+- Parallel boundaries: the table/record schemas and their focused tests form one implementation boundary; independent verification follows the implementation checkpoint.
+
 ## Deferred
 
 - Actions, functions, and ephemeral resources remain out of scope unless a future milestone establishes a concrete use case.

@@ -14,8 +14,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	resourceschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 type fakeDataTableRecordClient struct {
@@ -107,6 +110,111 @@ func TestDataTableRecordSchemaFactoriesAndImport(t *testing.T) {
 	}
 	if record.coordinator == otherRecord.coordinator {
 		t.Fatal("different provider factories must not share coordinators")
+	}
+}
+
+func TestDataTableRecordComputedIdentityPlanModifierPreservesStateOnUpdate(t *testing.T) {
+	response := &resource.SchemaResponse{}
+	NewDataTableRecordResource().Schema(context.Background(), resource.SchemaRequest{}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected schema diagnostics: %v", response.Diagnostics)
+	}
+
+	recordID, ok := response.Schema.Attributes["record_id"].(resourceschema.StringAttribute)
+	if !ok || !recordID.Computed || len(recordID.PlanModifiers) != 1 {
+		t.Fatalf("expected computed record_id with one plan modifier, got %#v", response.Schema.Attributes["record_id"])
+	}
+	if reflect.TypeOf(recordID.PlanModifiers[0]) != reflect.TypeOf(stringplanmodifier.UseStateForUnknown()) {
+		t.Fatalf("expected record_id to use UseStateForUnknown, got %T", recordID.PlanModifiers[0])
+	}
+
+	stateType := tftypes.Object{AttributeTypes: map[string]tftypes.Type{"identity": tftypes.String}}
+	knownState := tfsdk.State{Raw: tftypes.NewValue(stateType, map[string]tftypes.Value{
+		"identity": tftypes.NewValue(tftypes.String, "known-record"),
+	})}
+	planned := &planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+	recordID.PlanModifiers[0].PlanModifyString(context.Background(), planmodifier.StringRequest{
+		State:       knownState,
+		StateValue:  types.StringValue("known-record"),
+		PlanValue:   types.StringUnknown(),
+		ConfigValue: types.StringNull(),
+	}, planned)
+	if planned.Diagnostics.HasError() || !planned.PlanValue.Equal(types.StringValue("known-record")) {
+		t.Fatalf("expected known record_id state to be retained on update, planned=%v diagnostics=%v", planned.PlanValue, planned.Diagnostics)
+	}
+
+	creationState := tfsdk.State{Raw: tftypes.NewValue(stateType, nil)}
+	planned = &planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+	recordID.PlanModifiers[0].PlanModifyString(context.Background(), planmodifier.StringRequest{
+		State:       creationState,
+		StateValue:  types.StringNull(),
+		PlanValue:   types.StringUnknown(),
+		ConfigValue: types.StringNull(),
+	}, planned)
+	if planned.Diagnostics.HasError() || !planned.PlanValue.IsUnknown() {
+		t.Fatalf("expected record_id to remain unknown on create, planned=%v diagnostics=%v", planned.PlanValue, planned.Diagnostics)
+	}
+}
+
+func TestRequiresReplaceMapPlanModifier(t *testing.T) {
+	knownBefore := types.MapValueMust(types.StringType, map[string]attr.Value{
+		"key": types.StringValue("before"),
+	})
+	knownAfter := types.MapValueMust(types.StringType, map[string]attr.Value{
+		"key": types.StringValue("after"),
+	})
+	tests := map[string]struct {
+		stateValue      types.Map
+		planValue       types.Map
+		requiresReplace bool
+	}{
+		"changed-known-values": {
+			stateValue:      knownBefore,
+			planValue:       knownAfter,
+			requiresReplace: true,
+		},
+		"unchanged-known-values": {
+			stateValue:      knownBefore,
+			planValue:       knownBefore,
+			requiresReplace: false,
+		},
+		"null-state": {
+			stateValue:      types.MapNull(types.StringType),
+			planValue:       knownAfter,
+			requiresReplace: false,
+		},
+		"null-plan": {
+			stateValue:      knownBefore,
+			planValue:       types.MapNull(types.StringType),
+			requiresReplace: false,
+		},
+		"unknown-state": {
+			stateValue:      types.MapUnknown(types.StringType),
+			planValue:       knownAfter,
+			requiresReplace: false,
+		},
+		"unknown-plan": {
+			stateValue:      knownBefore,
+			planValue:       types.MapUnknown(types.StringType),
+			requiresReplace: false,
+		},
+	}
+
+	modifier := requiresReplaceMapPlanModifier{}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			response := &planmodifier.MapResponse{}
+			modifier.PlanModifyMap(context.Background(), planmodifier.MapRequest{
+				StateValue: test.stateValue,
+				PlanValue:  test.planValue,
+			}, response)
+			if response.Diagnostics.HasError() {
+				t.Fatalf("unexpected diagnostics: %v", response.Diagnostics)
+			}
+			if response.RequiresReplace != test.requiresReplace {
+				t.Fatalf("unexpected requires_replace=%t, want %t", response.RequiresReplace, test.requiresReplace)
+			}
+		})
 	}
 }
 

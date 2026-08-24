@@ -15,8 +15,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	resourceschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 )
 
 const (
@@ -172,6 +175,56 @@ func TestDataTableMetadataSchemaAndFactory(t *testing.T) {
 	}
 	if first.coordinator != second.coordinator || first.coordinator == other.coordinator {
 		t.Fatal("expected coordinator sharing only within one provider factory")
+	}
+}
+
+func TestDataTableComputedIdentityPlanModifiersPreserveStateOnUpdate(t *testing.T) {
+	response := &resource.SchemaResponse{}
+	NewDataTableResource().Schema(context.Background(), resource.SchemaRequest{}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected schema diagnostics: %v", response.Diagnostics)
+	}
+
+	stateType := tftypes.Object{AttributeTypes: map[string]tftypes.Type{"identity": tftypes.String}}
+	knownState := tfsdk.State{Raw: tftypes.NewValue(stateType, map[string]tftypes.Value{
+		"identity": tftypes.NewValue(tftypes.String, "known-identity"),
+	})}
+	creationState := tfsdk.State{Raw: tftypes.NewValue(stateType, nil)}
+	modifierType := reflect.TypeOf(stringplanmodifier.UseStateForUnknown())
+
+	for name, stateValue := range map[string]types.String{
+		"id":  types.StringValue("known-id"),
+		"arn": types.StringValue("arn:aws:connect:region:account:data-table/known-id"),
+	} {
+		attribute, ok := response.Schema.Attributes[name].(resourceschema.StringAttribute)
+		if !ok || !attribute.Computed || len(attribute.PlanModifiers) != 1 {
+			t.Fatalf("expected computed %s with one plan modifier, got %#v", name, response.Schema.Attributes[name])
+		}
+		if reflect.TypeOf(attribute.PlanModifiers[0]) != modifierType {
+			t.Fatalf("expected %s to use UseStateForUnknown, got %T", name, attribute.PlanModifiers[0])
+		}
+
+		planned := &planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+		attribute.PlanModifiers[0].PlanModifyString(context.Background(), planmodifier.StringRequest{
+			State:       knownState,
+			StateValue:  stateValue,
+			PlanValue:   types.StringUnknown(),
+			ConfigValue: types.StringNull(),
+		}, planned)
+		if planned.Diagnostics.HasError() || !planned.PlanValue.Equal(stateValue) {
+			t.Fatalf("expected known %s state to be retained on update, planned=%v diagnostics=%v", name, planned.PlanValue, planned.Diagnostics)
+		}
+
+		planned = &planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+		attribute.PlanModifiers[0].PlanModifyString(context.Background(), planmodifier.StringRequest{
+			State:       creationState,
+			StateValue:  types.StringNull(),
+			PlanValue:   types.StringUnknown(),
+			ConfigValue: types.StringNull(),
+		}, planned)
+		if planned.Diagnostics.HasError() || !planned.PlanValue.IsUnknown() {
+			t.Fatalf("expected %s to remain unknown on create, planned=%v diagnostics=%v", name, planned.PlanValue, planned.Diagnostics)
+		}
 	}
 }
 

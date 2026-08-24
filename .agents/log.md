@@ -258,6 +258,14 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - All current paginators now use explicit documented-safe page sizes. Data-table refresh filters `ListDataTableValues` to `RecordIds: ["DEFAULT"]`; record reads retain record-ID filters; queue pagination now rejects repeated tokens.
 - Data-table update skips unchanged metadata mutations and avoids the intermediate lock-refresh snapshot when DEFAULT values are unchanged. Correctness reads, lock-version refreshes for changed defaults, authoritative final refresh, batching, and drift semantics remain intact.
 - Full unit tests passed with Connect coverage 81.4%, connections coverage 87.3%, and provider coverage 95.7%. Focused race tests, build, lint, two Terraform 1.14.0 documentation generations, and diff checks passed. No real AWS calls were made.
+
 - A proposed `M8` records the request to expose resource names. Hours overrides and data tables already expose AWS names; queue association edges and data-table records have no intrinsic AWS resource name, so contract clarification is required before implementation.
 - The owner subsequently confirmed that `M8` `name` means the AWS remote object's name when applicable. Terraform block labels, parent-resource names, and synthetic names are excluded. Hours overrides and data tables already qualify; queue association edges and data-table records remain unnamed because those managed remote objects have no intrinsic AWS name.
 - Closed `M8` without source changes. The applicable AWS remote names were already exposed, and adding a queue name to an association set or primary values as a record name would misrepresent parent or identity data as the managed object's name.
+
+## 2026-08-24 — Stable data-table identity planning
+
+- Terraform Plugin Framework marks unconfigured computed attributes unknown during updates unless plan modification supplies a stable value. The computed data-table `id` therefore propagated an unknown value into replacement-only record `data_table_id`, causing false record replacement plans during in-place table updates.
+- Added `stringplanmodifier.UseStateForUnknown()` to the data-table `id` and `arn` and the record `record_id`. Known identities now remain stable during updates and remain unknown during creation.
+- Record identity semantics are unchanged: changing known `primary_values` requires replacement, while changing ordinary `values` remains an in-place authoritative reconciliation.
+- Focused modifier tests, full unit tests, Connect race tests, formatting, lint with an isolated writable cache, and diff checks passed. No AWS calls were made.

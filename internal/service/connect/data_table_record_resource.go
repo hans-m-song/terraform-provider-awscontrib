@@ -108,6 +108,7 @@ func (r *dataTableRecordResource) Schema(_ context.Context, _ resource.SchemaReq
 			"record_id": resourceschema.StringAttribute{
 				MarkdownDescription: "Amazon Connect record identifier derived from the composite primary key.",
 				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}

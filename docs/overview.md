@@ -8,7 +8,7 @@ The first implemented feature is an Amazon Connect queue/quick-connect associati
 
 ## Current state
 
-As of 2026-08-21, the provider bootstrap, the approved Amazon Connect lifecycle expansion, and process-local request hardening are implemented:
+As of 2026-08-24, the provider bootstrap, the approved Amazon Connect lifecycle expansion, and process-local request hardening are implemented:
 
 - the Go module is `github.com/hans-m-song/terraform-provider-awscontrib`;
 - the provider type is `awscontrib` and server address is `registry.terraform.io/hans-m-song/awscontrib`;
@@ -18,6 +18,7 @@ As of 2026-08-21, the provider bootstrap, the approved Amazon Connect lifecycle 
 - `internal/service/connect` owns four resources and two exact-match data sources;
 - scaffold resources, data sources, actions, functions, and ephemeral resources have been removed;
 - registered resources manage queue/quick-connect associations, hours-of-operation overrides, combined data tables, and composite-key data-table records;
+- stable computed data-table and record identities are preserved during in-place planning so dependent records are not falsely replaced;
 - registered data sources look up phone numbers by full number and contact-flow modules by exact name;
 - maintained examples and generated reference documentation cover every registered surface;
 - fixture-free CI runs the complete unit suite, focused race tests, build, lint, and deterministic documentation generation;

@@ -116,10 +116,12 @@ func (r *dataTableResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"id": resourceschema.StringAttribute{
 				MarkdownDescription: "Data-table identifier.",
 				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"arn": resourceschema.StringAttribute{
 				MarkdownDescription: "Data-table ARN.",
 				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"name": resourceschema.StringAttribute{
 				MarkdownDescription: "Data-table name.",
