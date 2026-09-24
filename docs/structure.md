@@ -30,7 +30,6 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
 ├── internal/
 │   ├── provider/
 │   │   ├── provider.go             metadata, schema, configuration
-│   │   ├── data_sources.go         explicit data-source registry
 │   │   └── provider_test.go
 │   ├── conns/
 │   │   ├── config.go               AWS SDK v2 configuration
@@ -46,6 +45,7 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
 │           ├── quick_connects_data_source.go       planned M2
 │           ├── phone_number_data_source.go
 │           ├── contact_flow_module_data_source.go
+│           ├── data_table_data_source.go
 │           ├── hours_of_operation_override_resource.go
 │           ├── data_table_coordinator.go
 │           ├── data_table_resource.go

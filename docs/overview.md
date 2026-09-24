@@ -4,27 +4,30 @@
 
 `terraform-provider-awscontrib` is planned as a focused provider for miscellaneous AWS capabilities that are absent from the HashiCorp AWS and AWS Cloud Control providers. Its publication address is `registry.terraform.io/hans-m-song/awscontrib`, its Terraform type name is `awscontrib`, and its Go module is `github.com/hans-m-song/terraform-provider-awscontrib`.
 
-The first implemented feature is an Amazon Connect queue/quick-connect association resource. Planned work adds in-place association reconciliation, exact phone-number and contact-flow-module lookups, standalone hours-of-operation overrides, and direct data-table lifecycle management. A plural quick-connect discovery data source remains a separate proposed milestone.
+The first implemented feature was an Amazon Connect queue/quick-connect association resource. The provider now also includes in-place association reconciliation, exact phone-number and contact-flow-module lookups, standalone hours-of-operation overrides, direct data-table lifecycle management, and data-table lookup by ID or name. A plural quick-connect discovery data source remains a separate proposed milestone.
 
 ## Current state
 
-As of 2026-08-24, the provider bootstrap, the approved Amazon Connect lifecycle expansion, and process-local request hardening are implemented:
+As of 2026-09-24, the provider bootstrap, the approved Amazon Connect lifecycle expansion, process-local request hardening, and data-table lookup are implemented:
 
 - the Go module is `github.com/hans-m-song/terraform-provider-awscontrib`;
 - the provider type is `awscontrib` and server address is `registry.terraform.io/hans-m-song/awscontrib`;
 - provider configuration uses AWS SDK for Go v2 with optional `profile` and `region`;
 - `internal/conns` owns AWS configuration and client construction;
 - one configured provider process reuses one Amazon Connect SDK client and paces every physical request attempt by API operation;
-- `internal/service/connect` owns four resources and two exact-match data sources;
+- `internal/service/connect` owns four resources and three lookup data sources;
 - scaffold resources, data sources, actions, functions, and ephemeral resources have been removed;
 - registered resources manage queue/quick-connect associations, hours-of-operation overrides, combined data tables, and composite-key data-table records;
 - stable computed data-table and record identities are preserved during in-place planning so dependent records are not falsely replaced;
-- registered data sources look up phone numbers by full number and contact-flow modules by exact name;
+- registered data sources look up phone numbers by full number, contact-flow modules by exact name, and data tables by ID or exact name;
 - maintained examples and generated reference documentation cover every registered surface;
 - fixture-free CI runs the complete unit suite, focused race tests, build, lint, and deterministic documentation generation;
 - tag-triggered releases run the same repository-controlled verification before signed GoReleaser packaging.
+- routine Dependabot updates for both Go modules and GitHub Actions observe a seven-day release cooldown, while security updates remain exempt under GitHub's cooldown semantics.
 
 The implementation is fixture-free: mocked and Framework tests are required, while no real Amazon Connect acceptance result is claimed.
+
+Milestone `M11` proposes a breaking `v0.5.0` redesign of the singular hours-of-operation override resource. The public schema will express one of four practitioner intents—temporary closure, temporary replacement hours, recurring closure, or recurring open hours—instead of exposing independent AWS type, recurrence, and time-window fields. Canonical `v0.4.x` state will be upgraded in place; unclassifiable legacy combinations will fail with migration guidance rather than being guessed. Implementation remains blocked on complete AWS payload evidence and contract approval.
 
 Documentation schema export is pinned to Terraform CLI 1.14.0. `terraform-plugin-docs` 0.25.0 failed to load its temporary provider installation with Terraform CLI 1.15.8 on 2026-08-18, while the same generation completed with 1.14.0. This tooling pin does not change the provider's documented Terraform CLI compatibility baseline.
 
@@ -91,7 +94,8 @@ The implemented feature set after association reconciliation is:
 ```text
 exact lookup data sources
   ├── phone number by full number
-  └── contact-flow module by exact name
+  ├── contact-flow module by exact name
+  └── data table by ID or exact name
 
 standalone hours-of-operation override
   └── explicit create/read/update/delete and removal semantics
@@ -108,6 +112,8 @@ non-default data-table record
 ```
 
 The phone-number lookup may use `PhoneNumberPrefix` to narrow the AWS result set, but it must paginate and enforce equality against the full configured number. The contact-flow-module lookup likewise enforces exact name equality after complete pagination. A contact-flow lookup is deliberately omitted because the HashiCorp AWS provider already supplies one.
+
+The data-table lookup accepts exactly one of `data_table_id` or `name` within an instance. ID lookup calls `DescribeDataTable`; name lookup paginates `SearchDataTables`, enforces exact name equality, then describes the matching ID. It returns the remote ID, ARN, name, and table metadata without taking ownership of the table.
 
 Hours overrides are modeled separately from their parent hours-of-operation resource. This gives Terraform a distinct remote identity and lets update code send explicit removals instead of relying on ambiguous nested optional/computed state. Schedule input uses an optional `time_windows` set with required `day` and zero-padded `opens`/`closes` strings. Omission is a canonical empty set: `STANDARD` and `CLOSED` may represent full-day closure without boilerplate, while `OPEN` requires at least one window.
 

@@ -96,6 +96,7 @@ func New(version string) func() provider.Provider {
 			dataSourceConstructors: []func() datasource.DataSource{
 				connectservice.PhoneNumberDataSourceFactory(),
 				connectservice.ContactFlowModuleDataSourceFactory(),
+				connectservice.DataTableDataSourceFactory(),
 			},
 		}
 	}

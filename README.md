@@ -41,6 +41,7 @@ Do not place credentials in Terraform configuration. Configure credentials throu
 
 - [`awscontrib_connect_phone_number`](docs/data-sources/connect_phone_number.md)
 - [`awscontrib_connect_contact_flow_module`](docs/data-sources/connect_contact_flow_module.md)
+- [`awscontrib_connect_data_table`](docs/data-sources/connect_data_table.md)
 
 ## Development
 

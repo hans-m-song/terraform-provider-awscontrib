@@ -549,6 +549,102 @@ Status: Complete.
 - Blockers: none. Computed data-table ID/ARN and record ID now retain known prior state during updates while remaining unknown during creation. Executable tests preserve replacement for changed known `primary_values` and in-place behavior for ordinary `values`.
 - Parallel boundaries: the table/record schemas and their focused tests form one implementation boundary; independent verification follows the implementation checkpoint.
 
+## M10 — Dependabot release-age policy
+
+Goal: avoid routine dependency-update pull requests for newly published package versions while preserving prompt security updates.
+
+Status: Complete.
+
+### M10-T01 — Require a seven-day version-update cooldown
+
+- Status: Complete.
+- Goal: require routine Dependabot updates to reference package releases that are at least seven days old.
+- Scope: root Go module, tools Go module, and GitHub Actions update entries in `.github/dependabot.yml`.
+- Constraints: apply the cooldown uniformly; retain existing schedules and groups; GitHub security updates remain exempt from cooldown behavior.
+- Acceptance criteria: every configured ecosystem entry specifies `cooldown.default-days: 7`; the YAML parses successfully; no unrelated automation changes are introduced.
+- Roles: executor, tester, main agent.
+- Dependencies: none.
+- Verification gates: YAML parsing, semantic configuration audit, and diff check.
+- Blockers: none. All three update entries specify `cooldown.default-days: 7`; local YAML parsing and semantic comparison passed. GitHub's live Dependabot validator was not invoked.
+- Parallel boundaries: configuration is one edit boundary; independent verification follows the implementation checkpoint.
+
+## M11 — Intent-based hours-of-operation overrides
+
+Goal: replace the API-shaped hours-of-operation override configuration with an intent-based singular-resource schema in the breaking `v0.5.0` release while preserving classifiable `v0.4.x` state.
+
+Status: Proposed.
+
+### M11-T01 — Freeze override intent semantics
+
+- Status: In progress.
+- Goal: define an ergonomic, mutually exclusive schema for temporary closures, temporary replacement hours, recurring closures, and recurring open hours.
+- Scope: `temporary_closure`, `temporary_hours`, `recurring_closure`, and `recurring_hours`; inclusive effective dates; weekly, monthly, and yearly recurrence; full-day and partial-day behavior; time-range ordering; AWS request and response normalization.
+- Constraints: one Terraform resource continues to own one AWS override; weekly recurrence requires an explicit weekday; `recurring_closure.hours` omission means a full-day closure encoded as `00:00`–`00:00`; do not infer unverified temporary, monthly, yearly, overlap, or midnight behavior; do not introduce a plural authoritative resource.
+- Acceptance criteria: every supported intent has one unambiguous Terraform-to-AWS mapping; invalid combinations are enumerated; import/read classification is deterministic; equivalent absent and empty AWS recurrence selectors normalize without perpetual diffs.
+- Roles: architect, explorer, main agent.
+- Dependencies: `M5`.
+- Verification gates: current AWS API documentation, pinned SDK audit, and owner-provided console payloads for every supported intent and recurrence shape.
+- Blockers: temporary whole-day closure, temporary replacement hours, recurring partial closure, recurring open hours, and monthly/yearly payload mappings remain unverified. The owner-observed weekly full-day closure payload establishes `OverrideType: CLOSED`, an explicit weekday, `00:00`–`00:00`, `Frequency: WEEKLY`, and `Interval: 1`.
+- Parallel boundaries: evidence collection may be divided by intent; the main agent owns the final public contract.
+
+### M11-T02 — Define the `v0.4.x` state migration contract
+
+- Status: Proposed.
+- Goal: make the `v0.5.0` configuration break deliberate without making canonical existing state unreadable.
+- Scope: resource schema versioning, prior schema, state upgrader, classifiable legacy combinations, diagnostics for unclassifiable states, and an operator migration procedure.
+- Constraints: state upgrading cannot call AWS or rewrite practitioner configuration; preserve instance, parent, override identity, name, description, dates, recurrence, and time windows; never guess when a legacy combination has no intent-preserving representation.
+- Acceptance criteria: canonical `STANDARD` temporary, recurring `CLOSED`, and recurring `OPEN` states upgrade deterministically; unsupported combinations fail with actionable instructions to remain on `v0.4.3`, normalize and refresh state, then upgrade; equivalent rewritten `v0.5.0` configuration plans no remote mutation.
+- Roles: architect, executor, tester, main agent.
+- Dependencies: `M11-T01`.
+- Verification gates: Framework raw-state upgrade tests from the version-zero schema, semantic equivalence tests, and unsupported-state diagnostic tests.
+- Blockers: the classifiable legacy matrix cannot be finalized until `M11-T01` freezes all intent mappings.
+- Parallel boundaries: prior-state fixtures may be prepared after the intent model freezes; upgrader implementation and lifecycle integration share one ownership boundary.
+
+### M11-T03 — Implement the breaking singular-resource schema
+
+- Status: Proposed.
+- Goal: implement the frozen intent schema and canonical AWS translation in the existing `awscontrib_connect_hours_of_operation_override` resource.
+- Scope: schema, models, validation, planning, CRUD translation, refresh classification, import, state upgrade, narrow helpers, and focused tests.
+- Constraints: remove the public `effective_from`, `effective_till`, `override_type`, `time_windows`, and `recurrence` configuration surface; retain the resource type, remote identity, and composite import identity; changes that require clearing recurrence replace the override; avoid speculative shared abstractions.
+- Acceptance criteria: exactly one intent is required; all frozen shapes round-trip; unknown values defer validation correctly; canonical migrated state and equivalent configuration produce a stable plan; unclassifiable remote objects return precise diagnostics rather than being rewritten.
+- Roles: executor, tester, main agent.
+- Dependencies: `M11-T01`, `M11-T02`.
+- Verification gates: schema and metadata tests, mapping tests, CRUD and import tests, state-upgrade tests, focused race tests, full tests, formatting, build, and lint.
+- Blockers: implementation must not begin before the schema and migration contracts are approved.
+- Parallel boundaries: the resource and its focused tests are one implementation boundary; independent verification begins after the implementation checkpoint.
+
+### M11-T04 — Publish the `v0.5.0` migration surface
+
+- Status: Proposed.
+- Goal: document and verify the breaking change so operators can upgrade deliberately and detect unintended replacements before apply.
+- Scope: examples, generated resource reference, maintained overview and structure documentation, changelog, `v0.4.x` to `v0.5.0` migration guide, and release-readiness verification.
+- Constraints: generated reference documentation is produced by `make generate`; do not claim real-AWS verification without separately authorized execution; state migration does not rewrite `.tf` files.
+- Acceptance criteria: each intent has an executable example; the migration guide includes refresh, configuration rewrite, provider constraint, initialization, and plan-review gates; breaking behavior and unclassifiable-state recovery are prominent; two consecutive generations are clean.
+- Roles: scribe, tester, main agent.
+- Dependencies: `M11-T03`.
+- Verification gates: repository standard fixture-free sequence, migration fixture plans, two deterministic generations, diff audit, and release checklist review.
+- Blockers: release authorization and any real-AWS validation remain separate owner decisions.
+- Parallel boundaries: migration prose and examples may begin from the frozen schema; generated documentation and final verification follow compiled implementation.
+
+## M12 — Amazon Connect data-table lookup
+
+Goal: read one existing data table by ID or exact name without managing its lifecycle.
+
+Status: Complete; fixture-free verified.
+
+### M12-T01 — Add singular lookup and reference documentation
+
+- Status: Complete.
+- Goal: expose `awscontrib_connect_data_table` with a stable remote identity and metadata.
+- Scope: exactly one of `data_table_id` or `name` with required `instance_id`; direct `DescribeDataTable` lookup by ID; paginated `SearchDataTables` lookup by exact name; provider registration, example, and generated reference.
+- Constraints: require one exact match; reject missing, ambiguous, incomplete, and repeated-token results; do not read table attributes or values through this metadata lookup.
+- Acceptance criteria: the data source returns ID, ARN, name, description, time zone, status, value lock level, and tags; both lookup modes are documented.
+- Roles: main agent.
+- Dependencies: `M6`.
+- Verification gates: mocked lookup and Framework validation tests, full unit tests, focused race tests, Go build, lint, documentation generation, and diff review passed.
+- Blockers: no real-AWS fixture is available.
+- Parallel boundaries: one service file and provider registration form the implementation boundary.
+
 ## Deferred
 
 - Actions, functions, and ephemeral resources remain out of scope unless a future milestone establishes a concrete use case.

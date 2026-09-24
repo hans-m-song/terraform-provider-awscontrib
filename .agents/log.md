@@ -2,6 +2,14 @@
 
 Only the main agent edits this file. Record verified decisions, rejected approaches, and reusable lessons. Do not record credentials, account identifiers, or personal information.
 
+## 2026-09-24 — Singular Amazon Connect data-table lookup
+
+- The repository had a data-table resource but no registered data-table data source. The AWS Cloud Control provider changelog records an `awscc_connect_data_table` data source, so the new awscontrib lookup specifically adds exact name discovery and a direct Connect API path.
+- Registered `awscontrib_connect_data_table` with required `instance_id` and exactly one of `data_table_id` or `name`. ID lookup uses `DescribeDataTable`; name lookup uses paginated `SearchDataTables`, exact local name matching, and a final describe call for a consistent metadata shape.
+- The lookup exposes ID, ARN, remote name, description, time zone, status, value lock level, and tags. It does not read attributes or values or participate in mutation coordinators.
+- Mocked/Framework lookup tests, full unit tests, focused race tests, `go build ./...`, `golangci-lint run` with a writable cache, `make generate`, and `git diff --check` completed without errors. Real-AWS behavior remains unverified.
+- References: https://docs.aws.amazon.com/connect/latest/APIReference/API_DescribeDataTable.html ; https://docs.aws.amazon.com/connect/latest/APIReference/API_SearchDataTables.html ; https://github.com/hashicorp/terraform-provider-awscc/blob/main/CHANGELOG.md
+
 ## 2026-08-18 — Initial repository research
 
 ### Verified repository state
@@ -269,3 +277,18 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - Added `stringplanmodifier.UseStateForUnknown()` to the data-table `id` and `arn` and the record `record_id`. Known identities now remain stable during updates and remain unknown during creation.
 - Record identity semantics are unchanged: changing known `primary_values` requires replacement, while changing ordinary `values` remains an in-place authoritative reconciliation.
 - Focused modifier tests, full unit tests, Connect race tests, formatting, lint with an isolated writable cache, and diff checks passed. No AWS calls were made.
+
+## 2026-08-24 — Dependabot seven-day cooldown
+
+- Added `cooldown.default-days: 7` to the root Go module, tools Go module, and GitHub Actions entries in `.github/dependabot.yml`.
+- Existing schedules and dependency groups are unchanged. Under GitHub's documented semantics, cooldown applies to routine version updates and does not delay security updates.
+- Local YAML parsing, exact-entry semantic checks, independent diff review, and whitespace validation passed. GitHub's live Dependabot validator was not invoked.
+
+## 2026-09-16 — Planned `v0.5.0` hours override redesign
+
+- Chose to retain one Terraform resource per Amazon Connect hours-of-operation override. Rejected an authoritative plural resource because AWS exposes only singular create, update, and delete operations, so collection mutation would be non-atomic and materially complicate partial-failure recovery.
+- Planned a breaking `v0.5.0` schema with exactly one of `temporary_closure`, `temporary_hours`, `recurring_closure`, or `recurring_hours`. The current independent `effective_from`, `effective_till`, `override_type`, `time_windows`, and `recurrence` configuration attributes will not remain as a parallel public mode.
+- Weekly recurrence will require an explicit weekday. Within `recurring_closure`, omitted `hours` means a full-day closure; `hours` is not named `closed_hours` because the enclosing intent already supplies that meaning.
+- An owner-observed Amazon Connect console create payload for a weekly full-day closure on 2026-09-15 used `OverrideType: CLOSED`, `Config.Day: TUESDAY`, start and end `00:00`, and recurrence frequency `WEEKLY` with interval `1`. This corrects the prior assumption that a full-day recurring closure can be represented by an empty configuration.
+- `v0.5.0` must add resource schema versioning and upgrade classifiable `v0.4.x` state without AWS calls. Unclassifiable legacy states must receive actionable diagnostics rather than semantic guesses. State migration cannot rewrite practitioner configuration.
+- Temporary and partial-hour cases plus monthly and yearly recurrence payloads remain evidence gaps; implementation is blocked until the public contract is frozen.

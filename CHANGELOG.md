@@ -1,4 +1,18 @@
-## 0.1.0 (Unreleased)
+## 0.4.4 (2026-09-24)
+
+FEATURES:
+
+* **Data Source:** add `awscontrib_connect_data_table` lookup by ID or exact name within an Amazon Connect instance.
+
+MAINTENANCE:
+
+* **Dependabot:** wait seven days before routine dependency version updates; security updates are exempt.
+
+VERIFICATION:
+
+* Mocked and Terraform Plugin Framework checks cover both data-table lookup modes, pagination, exact matching, and errors. No real Amazon Connect fixture was used.
+
+## 0.1.0
 
 FEATURES:
 
