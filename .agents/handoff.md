@@ -8,7 +8,7 @@
 
 Milestones `M9` and `M10` are implemented and fixture-free verified. Milestone `M11` targets a breaking `v0.5.0` redesign of the singular hours-of-operation override resource around four explicit practitioner intents, with state upgrading for classifiable `v0.4.x` states. Contract task `M11-T01` is in progress; implementation remains blocked on the remaining AWS payload evidence and contract approval.
 
-`M12-T01` adds a singular Amazon Connect data-table lookup by ID or exact name. The source, registration, example, generated reference, and mocked/Framework verification are complete. Real-AWS behavior has not been verified.
+`M12-T01` adds a singular Amazon Connect data-table lookup by ID or exact name. The source, registration, example, generated reference, and mocked/Framework verification are complete. `v0.4.4` is published on GitHub and indexed by Terraform Registry. Real-AWS behavior has not been verified.
 
 ## Registered public surfaces
 
@@ -80,10 +80,10 @@ Independent verification passed all feature-level tests and race checks. Its def
 - `M11-T01` is in progress. Collect and verify payloads for temporary whole-day closure, temporary replacement hours, recurring partial closure, recurring open hours, and supported monthly/yearly recurrence shapes; then freeze the contract before implementation.
 - Preserve one Terraform resource per AWS override. Do not introduce the rejected authoritative plural resource; AWS has no batch override mutation API and collection applies would be non-atomic.
 - Design the `v0.4.x` schema-zero state upgrader only after intent mappings are frozen. It must not call AWS or guess at unclassifiable legacy combinations.
-- The owner authorized pushing and releasing the current provider changes as `v0.4.4`, including the completed M10 Dependabot cooldown.
+- The owner authorized and completed the `v0.4.4` release, including the completed M10 Dependabot cooldown. Release commit: `3cae353acaf65a6dc4ea6104e7181bc331b2d1c2`.
 - `internal/service/connect/handler.js` is an unrelated owner file. It was never read or modified and must not be staged without explicit owner direction.
 - `data_tables_awscontrib.tf` is a parallel conversion of the owner-supplied, untracked `data_tables.tf`; the source file was not modified. `docs/runbooks/migrate-data-tables-to-awscontrib.md` describes the migration gates and rollback.
 - Record import is now implemented, removing the provider-side migration blocker. The migration remains an operator-controlled state transition: discover each stable record ID, import every table and record, and approve all targeted plans before removing any old AWSCC state address.
-- Push the reviewed release commit and `v0.4.4` tag, then confirm the tag-triggered verification and signed GitHub release succeed.
+- GitHub tag tests and the signed release workflow succeeded; GitHub release assets include checksums and a detached signature. Terraform Registry listed `0.4.4` on 2026-09-24.
 - If feature work continues, `M2` plural quick-connect discovery remains the next proposed milestone.
 - `M8` resource-name exposure is complete without source changes. Hours overrides and data tables already expose AWS names; association edges and records have no intrinsic AWS resource names and remain unnamed.

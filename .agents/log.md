@@ -8,6 +8,7 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - Registered `awscontrib_connect_data_table` with required `instance_id` and exactly one of `data_table_id` or `name`. ID lookup uses `DescribeDataTable`; name lookup uses paginated `SearchDataTables`, exact local name matching, and a final describe call for a consistent metadata shape.
 - The lookup exposes ID, ARN, remote name, description, time zone, status, value lock level, and tags. It does not read attributes or values or participate in mutation coordinators.
 - Mocked/Framework lookup tests, full unit tests, focused race tests, `go build ./...`, `golangci-lint run` with a writable cache, `make generate`, and `git diff --check` completed without errors. Real-AWS behavior remains unverified.
+- Release commit `3cae353acaf65a6dc4ea6104e7181bc331b2d1c2` and lightweight tag `v0.4.4` were pushed. GitHub's tag test and release workflows succeeded; the public release includes platform archives, manifest, checksums, and detached checksum signature. Terraform Registry's versions API listed `0.4.4` on 2026-09-24.
 - References: https://docs.aws.amazon.com/connect/latest/APIReference/API_DescribeDataTable.html ; https://docs.aws.amazon.com/connect/latest/APIReference/API_SearchDataTables.html ; https://github.com/hashicorp/terraform-provider-awscc/blob/main/CHANGELOG.md
 
 ## 2026-08-18 — Initial repository research
