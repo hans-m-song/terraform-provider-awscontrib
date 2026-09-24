@@ -6,7 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.43.6
 	github.com/aws/aws-sdk-go-v2/config v1.32.37
 	github.com/aws/aws-sdk-go-v2/service/connect v1.189.0
-	github.com/aws/smithy-go v1.27.8
+	github.com/aws/smithy-go v1.28.1
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
 	github.com/hashicorp/terraform-plugin-go v0.31.0
 )
