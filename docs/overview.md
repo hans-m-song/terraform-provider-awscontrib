@@ -119,6 +119,8 @@ Hours overrides are modeled separately from their parent hours-of-operation reso
 
 The data-table resource combines table metadata and its complete managed attribute set because attributes are structurally subordinate to the table. The initial schema represents attribute type, description, and primary-key membership; AWS attribute validation rules and table tags remain deferred because their removal/update behavior is not reliably representable through the pinned SDK. Explicit default values are keyed by attribute name. AWS represents a stored default by returning `RecordId` `DEFAULT` when a value is created with `PrimaryValues` omitted; absence of a configured default means no stored default even if the console renders an implicit empty row. Non-default records remain separate resources and expose composite primary values as a map whose API representation is sorted by attribute name.
 
+As of 2026-10-06, hours override `override_type` is optional and computed. Omitted creation delegates type selection to Amazon Connect and reads back its response without assuming a `STANDARD` default. Removing a configured type retains the stored behavior; explicit `STANDARD`, `OPEN`, and `CLOSED` remain supported. An absent remote type maps to null.
+
 ## Planned discovery contract
 
 The proposed data source is plural rather than a replacement for the existing singular AWS provider data source:

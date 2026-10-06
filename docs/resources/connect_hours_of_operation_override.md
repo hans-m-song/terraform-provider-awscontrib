@@ -41,11 +41,11 @@ resource "awscontrib_connect_hours_of_operation_override" "example" {
 - `hours_of_operation_id` (String) Parent hours-of-operation identifier.
 - `instance_id` (String) Amazon Connect instance identifier.
 - `name` (String) Override name.
-- `override_type` (String) Override behavior: STANDARD, OPEN, or CLOSED.
 
 ### Optional
 
 - `description` (String) Optional override description. Removing a stored description requires replacement because the Amazon Connect API cannot clear it.
+- `override_type` (String) Override behavior: STANDARD, OPEN, or CLOSED. When omitted on creation, Amazon Connect chooses the behavior. Removing this attribute from configuration retains the stored behavior.
 - `recurrence` (Attributes) Optional recurrence pattern. Removing an existing recurrence requires replacement because the Amazon Connect API cannot clear it. (see [below for nested schema](#nestedatt--recurrence))
 - `time_windows` (Attributes Set) Unordered day/time windows for the override. Each time uses zero-padded HH:MM format. STANDARD and CLOSED overrides may omit windows. (see [below for nested schema](#nestedatt--time_windows))
 
