@@ -142,8 +142,10 @@ func (r *hoursOfOperationOverrideResource) Schema(_ context.Context, _ resource.
 				Validators:          []validator.String{dateValidator{}},
 			},
 			"override_type": resourceschema.StringAttribute{
-				MarkdownDescription: "Override behavior: STANDARD, OPEN, or CLOSED.",
-				Required:            true,
+				MarkdownDescription: "Override behavior: STANDARD, OPEN, or CLOSED. When omitted on creation, Amazon Connect chooses the behavior. Removing this attribute from configuration retains the stored behavior.",
+				Optional:            true,
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 				Validators:          []validator.String{stringEnumValidator{attributeName: "override_type", allowed: []string{"STANDARD", "OPEN", "CLOSED"}}},
 			},
 			"time_windows": resourceschema.SetNestedAttribute{
@@ -264,6 +266,14 @@ func (r *hoursOfOperationOverrideResource) Create(ctx context.Context, req resou
 	}
 
 	data.OverrideID = types.StringValue(aws.ToString(output.HoursOfOperationOverrideId))
+	if data.OverrideType.IsNull() || data.OverrideType.IsUnknown() {
+		data.OverrideType = types.StringNull()
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		resp.Diagnostics.Append(r.resolveOverrideType(ctx, &data)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -324,6 +334,7 @@ func (r *hoursOfOperationOverrideResource) Update(ctx context.Context, req resou
 		return
 	}
 
+	planned.OverrideType = preserveOptionalString(planned.OverrideType, prior.OverrideType)
 	planned.Description = preserveOptionalString(planned.Description, prior.Description)
 	planned.Recurrence = preserveOptionalObject(planned.Recurrence, prior.Recurrence)
 	if planned.OverrideID.IsNull() || planned.OverrideID.IsUnknown() {
@@ -354,6 +365,14 @@ func (r *hoursOfOperationOverrideResource) Update(ctx context.Context, req resou
 
 	if planned.OverrideID.IsNull() || planned.OverrideID.IsUnknown() {
 		planned.OverrideID = prior.OverrideID
+	}
+	if planned.OverrideType.IsUnknown() {
+		planned.OverrideType = types.StringNull()
+		resp.Diagnostics.Append(resp.State.Set(ctx, &planned)...)
+		resp.Diagnostics.Append(r.resolveOverrideType(ctx, &planned)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &planned)...)
 }
@@ -433,7 +452,7 @@ func createHoursOfOperationOverrideInput(ctx context.Context, data hoursOfOperat
 		HoursOfOperationId: aws.String(identity.hoursOfOperationID),
 		InstanceId:         aws.String(identity.instanceID),
 		Name:               aws.String(identity.name),
-		OverrideType:       connecttypes.OverrideType(identity.overrideType),
+		OverrideType:       connecttypes.OverrideType(data.OverrideType.ValueString()),
 		RecurrenceConfig:   recurrence,
 	}, diagnostics
 }
@@ -469,7 +488,7 @@ func updateHoursOfOperationOverrideInput(ctx context.Context, data hoursOfOperat
 		HoursOfOperationOverrideId: aws.String(identity.overrideID),
 		InstanceId:                 aws.String(identity.instanceID),
 		Name:                       aws.String(identity.name),
-		OverrideType:               connecttypes.OverrideType(identity.overrideType),
+		OverrideType:               connecttypes.OverrideType(data.OverrideType.ValueString()),
 		RecurrenceConfig:           recurrence,
 	}, diagnostics
 }
@@ -481,7 +500,6 @@ type hoursOfOperationOverrideRequiredFields struct {
 	name               string
 	effectiveFrom      string
 	effectiveTill      string
-	overrideType       string
 }
 
 func requiredHoursOfOperationOverrideFields(data hoursOfOperationOverrideModel) (hoursOfOperationOverrideRequiredFields, diag.Diagnostics) {
@@ -500,8 +518,6 @@ func requiredHoursOfOperationOverrideFields(data hoursOfOperationOverrideModel) 
 	diagnostics.Append(fromDiagnostics...)
 	effectiveTill, tillDiagnostics := requiredStringValue(data.EffectiveTill, path.Root("effective_till"))
 	diagnostics.Append(tillDiagnostics...)
-	overrideType, typeDiagnostics := requiredStringValue(data.OverrideType, path.Root("override_type"))
-	diagnostics.Append(typeDiagnostics...)
 
 	return hoursOfOperationOverrideRequiredFields{
 		instanceID:         instanceID,
@@ -510,7 +526,6 @@ func requiredHoursOfOperationOverrideFields(data hoursOfOperationOverrideModel) 
 		name:               name,
 		effectiveFrom:      effectiveFrom,
 		effectiveTill:      effectiveTill,
-		overrideType:       overrideType,
 	}, diagnostics
 }
 
@@ -713,7 +728,7 @@ func setHoursOfOperationOverrideModel(data *hoursOfOperationOverrideModel, remot
 	data.Description = stringValueOrNull(remote.Description)
 	data.EffectiveFrom = stringValueOrNull(remote.EffectiveFrom)
 	data.EffectiveTill = stringValueOrNull(remote.EffectiveTill)
-	data.OverrideType = types.StringValue(string(remote.OverrideType))
+	data.OverrideType = hoursOfOperationOverrideTypeToTerraform(remote.OverrideType)
 
 	timeWindows, timeWindowsDiagnostics := hoursOfOperationOverrideTimeWindowsToTerraform(remote.Config)
 	var diagnostics diag.Diagnostics
@@ -721,6 +736,31 @@ func setHoursOfOperationOverrideModel(data *hoursOfOperationOverrideModel, remot
 	data.TimeWindows = timeWindows
 	data.Recurrence = hoursOfOperationOverrideRecurrenceToTerraform(remote.RecurrenceConfig)
 	return diagnostics
+}
+
+func hoursOfOperationOverrideTypeToTerraform(value connecttypes.OverrideType) types.String {
+	if value == "" {
+		return types.StringNull()
+	}
+	return types.StringValue(string(value))
+}
+
+func (r *hoursOfOperationOverrideResource) resolveOverrideType(ctx context.Context, data *hoursOfOperationOverrideModel) diag.Diagnostics {
+	input, diagnostics := hoursOfOperationOverrideIdentity(*data)
+	if diagnostics.HasError() {
+		return diagnostics
+	}
+
+	output, err := r.client.DescribeHoursOfOperationOverride(ctx, input)
+	if err != nil {
+		return diag.Diagnostics{diag.NewErrorDiagnostic("Unable to Read Hours-of-Operation Override Type", fmt.Sprintf("Could not read the type of override %q: %s", data.OverrideID.ValueString(), err))}
+	}
+	if output == nil || output.HoursOfOperationOverride == nil {
+		return diag.Diagnostics{diag.NewErrorDiagnostic("Invalid Hours-of-Operation Override Response", "Amazon Connect returned no override while resolving its type after mutation.")}
+	}
+
+	data.OverrideType = hoursOfOperationOverrideTypeToTerraform(output.HoursOfOperationOverride.OverrideType)
+	return nil
 }
 
 func stringValueOrNull(value *string) types.String {

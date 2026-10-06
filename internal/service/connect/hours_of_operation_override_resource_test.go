@@ -24,6 +24,118 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
+func TestOverrideTypeOmission(t *testing.T) {
+	for _, plannedType := range []types.String{types.StringNull(), types.StringUnknown()} {
+		for _, returnedType := range []connecttypes.OverrideType{"", connecttypes.OverrideTypeClosed} {
+			t.Run(fmt.Sprintf("%s/%s", plannedType, returnedType), func(t *testing.T) {
+				model := sampleOverrideModel()
+				model.OverrideID = types.StringNull()
+				model.OverrideType = plannedType
+				client := &fakeHoursOfOperationOverrideClient{
+					create: func(_ context.Context, input *awsconnect.CreateHoursOfOperationOverrideInput) (*awsconnect.CreateHoursOfOperationOverrideOutput, error) {
+						if input.OverrideType != "" {
+							t.Fatalf("expected omitted type, got %q", input.OverrideType)
+						}
+						return &awsconnect.CreateHoursOfOperationOverrideOutput{HoursOfOperationOverrideId: aws.String(overrideID)}, nil
+					},
+					describe: func(_ context.Context, input *awsconnect.DescribeHoursOfOperationOverrideInput) (*awsconnect.DescribeHoursOfOperationOverrideOutput, error) {
+						if aws.ToString(input.HoursOfOperationOverrideId) != overrideID {
+							t.Fatalf("unexpected readback identity: %#v", input)
+						}
+						remote := sampleRemoteOverride()
+						remote.OverrideType = returnedType
+						return &awsconnect.DescribeHoursOfOperationOverrideOutput{HoursOfOperationOverride: remote}, nil
+					},
+				}
+				implementation := &hoursOfOperationOverrideResource{client: client}
+				response := &resource.CreateResponse{State: overrideState(t, model)}
+				implementation.Create(context.Background(), resource.CreateRequest{Plan: overridePlan(t, model)}, response)
+				if response.Diagnostics.HasError() {
+					t.Fatalf("unexpected create diagnostics: %v", response.Diagnostics)
+				}
+				var actual hoursOfOperationOverrideModel
+				if diagnostics := response.State.Get(context.Background(), &actual); diagnostics.HasError() {
+					t.Fatal(diagnostics)
+				}
+				if actual.OverrideType.IsUnknown() || actual.OverrideType.ValueString() != string(returnedType) || actual.OverrideType.IsNull() != (returnedType == "") {
+					t.Fatalf("unexpected stored type: %s", actual.OverrideType)
+				}
+				update, diagnostics := updateHoursOfOperationOverrideInput(context.Background(), actual)
+				if diagnostics.HasError() || update.OverrideType != returnedType {
+					t.Fatalf("unexpected update type: %#v, %v", update, diagnostics)
+				}
+			})
+		}
+	}
+}
+
+func TestOverrideTypeRemovalRetainsStoredType(t *testing.T) {
+	prior := sampleOverrideModel()
+	prior.OverrideType = types.StringValue("CLOSED")
+	planned := prior
+	planned.OverrideType = types.StringNull()
+	implementation := &hoursOfOperationOverrideResource{client: &fakeHoursOfOperationOverrideClient{
+		update: func(_ context.Context, input *awsconnect.UpdateHoursOfOperationOverrideInput) (*awsconnect.UpdateHoursOfOperationOverrideOutput, error) {
+			if input.OverrideType != connecttypes.OverrideTypeClosed {
+				t.Fatalf("expected stored CLOSED type to be retained, got %q", input.OverrideType)
+			}
+			return &awsconnect.UpdateHoursOfOperationOverrideOutput{}, nil
+		},
+	}}
+	response := &resource.UpdateResponse{State: overrideState(t, prior)}
+	implementation.Update(context.Background(), resource.UpdateRequest{State: overrideState(t, prior), Plan: overridePlan(t, planned)}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatal(response.Diagnostics)
+	}
+	var actual hoursOfOperationOverrideModel
+	if diagnostics := response.State.Get(context.Background(), &actual); diagnostics.HasError() {
+		t.Fatal(diagnostics)
+	}
+	if !actual.OverrideType.Equal(prior.OverrideType) {
+		t.Fatalf("expected stored type, got %s", actual.OverrideType)
+	}
+}
+
+func TestOverrideTypePlanningRetainsState(t *testing.T) {
+	schemaResponse := &resource.SchemaResponse{}
+	NewHoursOfOperationOverrideResource().Schema(context.Background(), resource.SchemaRequest{}, schemaResponse)
+	attribute, ok := schemaResponse.Schema.Attributes["override_type"].(resourceschema.StringAttribute)
+	if !ok || len(attribute.PlanModifiers) != 1 {
+		t.Fatal("expected override type string with a plan modifier")
+	}
+	model := sampleOverrideModel()
+	response := &planmodifier.StringResponse{PlanValue: types.StringUnknown()}
+	attribute.PlanModifiers[0].PlanModifyString(context.Background(), planmodifier.StringRequest{
+		State: overrideState(t, model), StateValue: model.OverrideType, PlanValue: types.StringUnknown(), ConfigValue: types.StringNull(),
+	}, response)
+	if response.Diagnostics.HasError() || !response.PlanValue.Equal(model.OverrideType) {
+		t.Fatalf("expected stored type for omitted configuration, got %s: %v", response.PlanValue, response.Diagnostics)
+	}
+}
+
+func TestOverrideTypeReadbackFailureRetainsIdentity(t *testing.T) {
+	model := sampleOverrideModel()
+	model.OverrideID = types.StringNull()
+	model.OverrideType = types.StringUnknown()
+	implementation := &hoursOfOperationOverrideResource{client: &fakeHoursOfOperationOverrideClient{
+		describe: func(context.Context, *awsconnect.DescribeHoursOfOperationOverrideInput) (*awsconnect.DescribeHoursOfOperationOverrideOutput, error) {
+			return nil, errors.New("readback failed")
+		},
+	}}
+	response := &resource.CreateResponse{State: overrideState(t, model)}
+	implementation.Create(context.Background(), resource.CreateRequest{Plan: overridePlan(t, model)}, response)
+	if !response.Diagnostics.HasError() {
+		t.Fatal("expected readback diagnostic")
+	}
+	var actual hoursOfOperationOverrideModel
+	if diagnostics := response.State.Get(context.Background(), &actual); diagnostics.HasError() {
+		t.Fatal(diagnostics)
+	}
+	if actual.OverrideID.ValueString() != overrideID || !actual.OverrideType.IsNull() {
+		t.Fatalf("expected created identity and recoverable null type, got %#v", actual)
+	}
+}
+
 const (
 	overrideInstanceID       = "instance-for-hours-override"
 	overrideHoursID          = "hours-of-operation-id"
@@ -102,6 +214,10 @@ func TestHoursOfOperationOverrideMetadataAndSchema(t *testing.T) {
 	overrideIDAttribute, ok := schemaResponse.Schema.Attributes["override_id"].(resourceschema.StringAttribute)
 	if !ok || !overrideIDAttribute.Computed || overrideIDAttribute.Required || overrideIDAttribute.Optional {
 		t.Fatalf("expected computed override_id, got %#v", schemaResponse.Schema.Attributes["override_id"])
+	}
+	overrideType, ok := schemaResponse.Schema.Attributes["override_type"].(resourceschema.StringAttribute)
+	if !ok || !overrideType.Optional || !overrideType.Computed || overrideType.Required || overrideType.Default != nil || len(overrideType.PlanModifiers) != 1 {
+		t.Fatalf("expected optional computed override_type without an assumed default, got %#v", overrideType)
 	}
 	timeWindows, ok := schemaResponse.Schema.Attributes["time_windows"].(resourceschema.SetNestedAttribute)
 	if !ok || !timeWindows.Optional || !timeWindows.Computed || timeWindows.Required || timeWindows.Default == nil {

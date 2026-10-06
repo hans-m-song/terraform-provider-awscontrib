@@ -12,6 +12,21 @@ Task and milestone IDs are immutable. Removed IDs are not reused.
 | Blocked | A recorded external decision or dependency prevents progress. |
 | Complete | Acceptance criteria and verification gates have passed. |
 
+## M13 — AWS API optionality alignment
+
+### M13-T01 — Optional hours override type
+
+- Status: Complete.
+- Goal: allow hours overrides to omit `override_type` without assuming an AWS default.
+- Scope: optional/computed schema, request omission, returned type normalization, mocked tests, generated documentation.
+- Constraints: retain explicit enum validation and stored type when configuration removes the attribute; preserve created identity if readback fails; no real AWS calls.
+- Acceptance criteria: omitted creation delegates type selection to AWS and reads the result into known state; explicit types remain supported; absent API types map to null.
+- Dependencies: existing hours override lifecycle; independent of the proposed M11 redesign.
+- Verification gates: focused mocked/Framework tests, formatting, full unit tests, lint, deterministic generation.
+- Blockers: none.
+
+Verification on 2026-10-06: full unit tests, focused independent override tests, formatting, lint with zero issues, and two deterministic documentation generations passed. No real AWS calls were made.
+
 ## M0 — Provider bootstrap
 
 Goal: replace scaffold identity and example connectivity with a minimal, testable AWS provider foundation.

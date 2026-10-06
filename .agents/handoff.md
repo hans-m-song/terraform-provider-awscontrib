@@ -2,7 +2,19 @@
 
 ## Updated
 
-2026-09-24, Australia/Brisbane.
+2026-10-06, Australia/Brisbane.
+
+## Latest review
+
+- Follow-up M13-T01 is complete: the owner approved optional `override_type`. Implemented optional/computed schema, enum omission, returned-type/null normalization, and stored-type retention after configuration removal. Created identity is recorded before type readback for recovery on errors.
+- Full unit tests, focused independent tests, formatting, lint (zero issues with writable cache), and two deterministic generated-document runs passed. Real AWS remains unverified. The owner requested a PR; changes are prepared for branch `fix/optional-hours-override-type` targeting `main`. No release or merge was requested.
+- Only `override_type` was changed. Nested time-window fields and data-table attributes retain their existing schemas; the M11 redesign remains pending.
+
+- Completed a documentation/source review of API optionality across registered Connect schemas. Implementation remains unchanged; no tests or AWS calls were needed for this review.
+- Confirmed mismatch: required `override_type` versus optional AWS create/update `OverrideType`. Any fix must cover request extraction and refresh normalization as well as schema flags; the omitted-type default remains unverified.
+- Conditional candidates: optional nested override day/start/end fields require omission semantics; optional data-table `attributes` could default to an empty map while retaining authoritative ownership.
+- AWS still marks table value lock level and recurrence frequency/interval required. Do not infer optionality from update operations or response models.
+- The review initially made no code changes; the subsequently approved M13-T01 implementation is described above. The existing M11 contract/evidence work remains pending.
 
 ## Objective and outcome
 

@@ -2,6 +2,18 @@
 
 Only the main agent edits this file. Record verified decisions, rejected approaches, and reusable lessons. Do not record credentials, account identifiers, or personal information.
 
+## 2026-10-06 — API optionality review
+
+- Follow-up M13-T01: the owner authorized making `override_type` optional. Implemented optional/computed schema with `UseStateForUnknown`, SDK enum omission for unconfigured creation, type readback after creation, and null normalization for absent API types. Explicit enum validation remains; removing configuration retains the stored type.
+- Before type readback, Create stores the created identity and a null type so failed Describe calls leave recoverable state. Update resolves an unknown type after mutation; existing known types avoid additional readback calls.
+- Added mocked omission/readback/failure tests plus removal and Framework planning tests. Full unit tests, focused independent verification, formatting, lint with zero issues, whitespace checks, and two deterministic generated-document runs passed. No real AWS calls were made. Generated reference, overview, changelog, roadmap, and handoff were updated.
+
+- Compared current Connect schemas and request/state mapping with AWS API documentation. No implementation changes or real AWS calls were made.
+- `override_type` is required in Terraform and request extraction but optional in AWS create/update. The reviewed documentation does not establish the omitted-type default; do not assume `STANDARD` without evidence. Reference: https://docs.aws.amazon.com/connect/latest/APIReference/API_CreateHoursOfOperationOverride.html
+- Nested override `Day`, `StartTime`, and `EndTime` are optional in the API model but required by Terraform time windows. Their omission semantics remain unverified. Reference: https://docs.aws.amazon.com/connect/latest/APIReference/API_HoursOfOperationOverrideConfig.html
+- Data-table `attributes` requires an explicit map even though AWS permits empty tables; the implementation accepts an empty map. Making omission canonical empty must preserve authoritative deletion semantics. Reference: https://docs.aws.amazon.com/connect/latest/APIReference/API_CreateDataTable.html
+- AWS marks data-table `ValueLockLevel` required despite prose describing a default of `NONE`; recurrence `Frequency` and `Interval` are required. These are not confirmed optional-field mismatches.
+
 ## 2026-09-24 — Singular Amazon Connect data-table lookup
 
 - The repository had a data-table resource but no registered data-table data source. The AWS Cloud Control provider changelog records an `awscc_connect_data_table` data source, so the new awscontrib lookup specifically adds exact name discovery and a direct Connect API path.

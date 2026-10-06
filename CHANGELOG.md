@@ -1,3 +1,9 @@
+## Unreleased
+
+ENHANCEMENTS:
+
+* **Resource:** make hours-of-operation `override_type` optional. Omitted creation delegates type selection to Amazon Connect and reads the returned type into state; removing configured type retains stored behavior.
+
 ## 0.4.4 (2026-09-24)
 
 FEATURES:
