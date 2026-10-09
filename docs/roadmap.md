@@ -12,6 +12,20 @@ Task and milestone IDs are immutable. Removed IDs are not reused.
 | Blocked | A recorded external decision or dependency prevents progress. |
 | Complete | Acceptance criteria and verification gates have passed. |
 
+## M14 — Data-table DEFAULT apply consistency
+
+### M14-T01 — Preserve successfully applied defaults
+
+- Status: Complete (2026-10-09).
+- Goal: prevent a successful data-table Create or Update from returning null instead of configured DEFAULT values.
+- Scope: table resource apply state, DEFAULT response mapping, mocked regression tests.
+- Constraints: no AWS calls; ordinary Read remains authoritative; preserve unrelated work.
+- Acceptance: Create retains `DisasterEnabled = "false"` after an empty immediate read; optional record IDs do not discard identifiable defaults; Update retains planned defaults.
+- Verification: focused regressions, full unit tests, formatting, lint, deterministic generation.
+- Blocker: exact production AWS response has not been captured; root cause of missing defaults remains uncertain.
+
+Verification on 2026-10-09: regressions failed before the fix and passed afterward; full unit suite, independent focused verification, formatting, lint (zero issues with writable cache), and clean reference generation passed. No AWS calls were made. Changes remain local and unreleased.
+
 ## M13 — AWS API optionality alignment
 
 ### M13-T01 — Optional hours override type

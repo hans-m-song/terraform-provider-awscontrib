@@ -2,6 +2,14 @@
 
 Only the main agent edits this file. Record verified decisions, rejected approaches, and reusable lessons. Do not record credentials, account identifiers, or personal information.
 
+## 2026-10-09 — Data-table DEFAULT state consistency
+
+- The owner reported a clean Create returning null DEFAULT values despite successful remote creation, followed by plan proposing defaults already visible in saved state.
+- Mocked Create and Update regressions reproduced the map-to-null failure before the fix. Successful apply now retains the exact planned DEFAULT map after the final remote refresh, including empty-map versus null semantics. Ordinary Read remains authoritative.
+- DEFAULT-filtered list responses now accept omitted record IDs when primary values are empty, while excluding explicit non-default IDs and nonempty primary values. AWS documents `RecordId` as optional: https://docs.aws.amazon.com/connect/latest/APIReference/API_DataTableValueSummary.html
+- The exact production response was not captured. Omitted record IDs and immediate read omissions are covered failure cases, not a verified diagnosis of the live AWS response.
+- Full unit tests, formatting, lint (zero issues with writable cache), clean generated references, and independent focused verification passed. Changes are local and unreleased; no real AWS test was run.
+
 ## 2026-10-06 — API optionality review
 
 - Follow-up M13-T01: the owner authorized making `override_type` optional. Implemented optional/computed schema with `UseStateForUnknown`, SDK enum omission for unconfigured creation, type readback after creation, and null normalization for absent API types. Explicit enum validation remains; removing configuration retains the stored type.

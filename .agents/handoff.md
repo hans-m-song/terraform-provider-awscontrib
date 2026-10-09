@@ -2,9 +2,12 @@
 
 ## Updated
 
-2026-10-06, Australia/Brisbane.
+2026-10-09, Australia/Brisbane.
 
 ## Latest review
+
+- M14-T01: approved DEFAULT apply/refresh correction is implemented locally. Create/Update retain planned defaults after successful mutations; ordinary Read accepts DEFAULT-filtered values with omitted record IDs and empty primary values, and remains authoritative for drift.
+- Mocked regressions reproduced failures before the fix. Full unit tests, formatting, lint (zero issues with writable cache), generation with no reference diff, and independent focused verification passed. No AWS calls, release, or deployment have been performed. Exact production response remains unknown. Next action: review and release the local patch, then verify the reported plan with that build; capture a redacted value-list response if the diff persists.
 
 - Follow-up M13-T01 is complete: the owner approved optional `override_type`. Implemented optional/computed schema, enum omission, returned-type/null normalization, and stored-type retention after configuration removal. Created identity is recorded before type readback for recovery on errors.
 - Full unit tests, focused independent tests, formatting, lint (zero issues with writable cache), and two deterministic generated-document runs passed. Real AWS remains unverified. The owner requested a PR; changes are prepared for branch `fix/optional-hours-override-type` targeting `main`. No release or merge was requested.
