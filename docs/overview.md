@@ -121,6 +121,8 @@ The data-table resource combines table metadata and its complete managed attribu
 
 As of 2026-10-06, hours override `override_type` is optional and computed. Omitted creation delegates type selection to Amazon Connect and reads back its response without assuming a `STANDARD` default. Removing a configured type retains the stored behavior; explicit `STANDARD`, `OPEN`, and `CLOSED` remain supported. An absent remote type maps to null.
 
+As of 2026-10-09, successful table Create and Update preserve the exact planned DEFAULT map after their final refresh. Ordinary Read remains authoritative for drift and accepts DEFAULT-filtered values with omitted record IDs when primary values are empty. Explicit non-default record IDs and values with primary keys remain excluded. The production response behind the reported map-to-null error has not been captured.
+
 ## Planned discovery contract
 
 The proposed data source is plural rather than a replacement for the existing singular AWS provider data source:

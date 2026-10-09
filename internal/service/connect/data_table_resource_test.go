@@ -372,6 +372,128 @@ func TestDataTableCreateRefreshesAuthoritativeState(t *testing.T) {
 	}
 }
 
+func TestDataTableCreateRetainsPlannedDefaultsWhenImmediateReadIsEmpty(t *testing.T) {
+	createCalls := 0
+	client := &fakeDataTableClient{
+		createTable: func(context.Context, *awsconnect.CreateDataTableInput) (*awsconnect.CreateDataTableOutput, error) {
+			return &awsconnect.CreateDataTableOutput{Id: aws.String(dataTableTestID)}, nil
+		},
+		createAttribute: func(context.Context, *awsconnect.CreateDataTableAttributeInput) (*awsconnect.CreateDataTableAttributeOutput, error) {
+			return &awsconnect.CreateDataTableAttributeOutput{}, nil
+		},
+		createValues: func(_ context.Context, input *awsconnect.BatchCreateDataTableValueInput) (*awsconnect.BatchCreateDataTableValueOutput, error) {
+			createCalls++
+			if len(input.Values) != 1 || aws.ToString(input.Values[0].AttributeName) != "DisasterEnabled" || aws.ToString(input.Values[0].Value) != "false" {
+				t.Fatalf("unexpected DEFAULT create input %#v", input.Values)
+			}
+			return &awsconnect.BatchCreateDataTableValueOutput{}, nil
+		},
+		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
+			return &awsconnect.DescribeDataTableOutput{DataTable: sampleRemoteDataTable()}, nil
+		},
+		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("DisasterEnabled"), ValueType: connecttypes.DataTableAttributeValueTypeBoolean}}}, nil
+		},
+		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+			return &awsconnect.ListDataTableValuesOutput{}, nil
+		},
+	}
+	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
+	planned := sampleDataTableModel(
+		map[string]attr.Value{"DisasterEnabled": dataTableAttributeValueWithType("BOOLEAN")},
+		map[string]attr.Value{"DisasterEnabled": types.StringValue("false")},
+	)
+	response := &resource.CreateResponse{State: dataTableSchemaOnlyState(t)}
+	implementation.Create(context.Background(), resource.CreateRequest{Plan: dataTablePlan(t, planned)}, response)
+	if response.Diagnostics.HasError() || createCalls != 1 {
+		t.Fatalf("expected successful DEFAULT mutation and create, calls=%d diagnostics=%v", createCalls, response.Diagnostics)
+	}
+	var state dataTableModel
+	response.Diagnostics.Append(response.State.Get(context.Background(), &state)...)
+	if response.Diagnostics.HasError() || !reflect.DeepEqual(state.DefaultValues, planned.DefaultValues) {
+		t.Fatalf("create must retain planned DEFAULT values after an empty immediate read, got %#v want %#v diagnostics=%v", state.DefaultValues, planned.DefaultValues, response.Diagnostics)
+	}
+
+	readResponse := &resource.ReadResponse{State: response.State}
+	implementation.Read(context.Background(), resource.ReadRequest{State: response.State}, readResponse)
+	response.Diagnostics.Append(readResponse.Diagnostics...)
+	response.Diagnostics.Append(readResponse.State.Get(context.Background(), &state)...)
+	if response.Diagnostics.HasError() || !state.DefaultValues.IsNull() {
+		t.Fatalf("ordinary Read must remain authoritative when the remote DEFAULT list is empty, got %#v diagnostics=%v", state.DefaultValues, response.Diagnostics)
+	}
+}
+
+func TestDataTableUpdateRetainsPlannedDefaultsWhenImmediateReadIsEmpty(t *testing.T) {
+	remote := sampleRemoteDataTable()
+	remote.Description = aws.String("")
+	valueReads := 0
+	lockVersion := &connecttypes.DataTableLockVersion{Value: aws.String("default-lock")}
+	client := &fakeDataTableClient{
+		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
+			return &awsconnect.DescribeDataTableOutput{DataTable: remote}, nil
+		},
+		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("DisasterEnabled"), ValueType: connecttypes.DataTableAttributeValueTypeBoolean}}}, nil
+		},
+		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+			valueReads++
+			if valueReads < 3 {
+				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("DisasterEnabled"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("true"), LockVersion: lockVersion}}}, nil
+			}
+			return &awsconnect.ListDataTableValuesOutput{}, nil
+		},
+		updateValues: func(_ context.Context, input *awsconnect.BatchUpdateDataTableValueInput) (*awsconnect.BatchUpdateDataTableValueOutput, error) {
+			if len(input.Values) != 1 || aws.ToString(input.Values[0].Value) != "false" || input.Values[0].LockVersion != lockVersion {
+				t.Fatalf("unexpected DEFAULT update input %#v", input.Values)
+			}
+			return &awsconnect.BatchUpdateDataTableValueOutput{}, nil
+		},
+	}
+	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
+	attributes := map[string]attr.Value{"DisasterEnabled": dataTableAttributeValueWithType("BOOLEAN")}
+	prior := sampleDataTableModel(attributes, map[string]attr.Value{"DisasterEnabled": types.StringValue("true")})
+	planned := sampleDataTableModel(attributes, map[string]attr.Value{"DisasterEnabled": types.StringValue("false")})
+	response := &resource.UpdateResponse{State: dataTableState(t, prior)}
+	implementation.Update(context.Background(), resource.UpdateRequest{State: dataTableState(t, prior), Plan: dataTablePlan(t, planned)}, response)
+	if response.Diagnostics.HasError() || valueReads != 3 {
+		t.Fatalf("expected successful DEFAULT update and final refresh, value reads=%d diagnostics=%v", valueReads, response.Diagnostics)
+	}
+	var state dataTableModel
+	response.Diagnostics.Append(response.State.Get(context.Background(), &state)...)
+	if response.Diagnostics.HasError() || !reflect.DeepEqual(state.DefaultValues, planned.DefaultValues) {
+		t.Fatalf("update must retain planned DEFAULT values after an empty immediate read, got %#v want %#v diagnostics=%v", state.DefaultValues, planned.DefaultValues, response.Diagnostics)
+	}
+}
+
+func TestDataTableUpdateRetainsAnEmptyPlannedDefaultMap(t *testing.T) {
+	remote := sampleRemoteDataTable()
+	remote.Description = aws.String("")
+	client := &fakeDataTableClient{
+		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
+			return &awsconnect.DescribeDataTableOutput{DataTable: remote}, nil
+		},
+		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			return &awsconnect.ListDataTableAttributesOutput{}, nil
+		},
+		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+			return &awsconnect.ListDataTableValuesOutput{}, nil
+		},
+	}
+	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
+	prior := sampleDataTableModel(nil, nil)
+	planned := sampleDataTableModel(nil, map[string]attr.Value{})
+	response := &resource.UpdateResponse{State: dataTableState(t, prior)}
+	implementation.Update(context.Background(), resource.UpdateRequest{State: dataTableState(t, prior), Plan: dataTablePlan(t, planned)}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected update diagnostics: %v", response.Diagnostics)
+	}
+	var state dataTableModel
+	response.Diagnostics.Append(response.State.Get(context.Background(), &state)...)
+	if response.Diagnostics.HasError() || !reflect.DeepEqual(state.DefaultValues, planned.DefaultValues) || state.DefaultValues.IsNull() {
+		t.Fatalf("update must preserve the planned empty map distinctly from null, got %#v want %#v diagnostics=%v", state.DefaultValues, planned.DefaultValues, response.Diagnostics)
+	}
+}
+
 func TestDataTableUpdateBatchFailuresAreActionableAndKeepPriorState(t *testing.T) {
 	for _, testCase := range []struct {
 		name              string
@@ -463,6 +585,9 @@ func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
 	attributePages := 0
 	valuePages := 0
 	client := &fakeDataTableClient{
+		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
+			return &awsconnect.DescribeDataTableOutput{DataTable: sampleRemoteDataTable()}, nil
+		},
 		listAttributes: func(_ context.Context, input *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
 			attributePages++
 			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableAttributesPerPage {
@@ -484,23 +609,32 @@ func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
 			if input.NextToken == nil {
 				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("answer"), RecordId: aws.String("ordinary"), Value: aws.String("ignored")}}, NextToken: aws.String("next")}, nil
 			}
-			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("answer"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("42"), LockVersion: &connecttypes.DataTableLockVersion{Value: aws.String("lock")}}}}, nil
+			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
+				{AttributeName: aws.String("answer"), Value: aws.String("42"), LockVersion: &connecttypes.DataTableLockVersion{Value: aws.String("lock")}},
+				{AttributeName: aws.String("primary_record"), PrimaryValues: []connecttypes.PrimaryValueResponse{{AttributeName: aws.String("key"), Value: aws.String("ordinary")}}, Value: aws.String("ignored")},
+				{AttributeName: aws.String("explicit_record"), RecordId: aws.String("ordinary"), Value: aws.String("ignored")},
+			}}, nil
 		},
 	}
-	resource := &dataTableResource{client: client}
-	model, err := resource.readRemote(context.Background(), dataTableKey{instanceID: dataTableTestInstanceID, dataTableID: dataTableTestID})
-	if err != nil {
-		t.Fatalf("unexpected read error: %v", err)
+	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
+	prior := sampleDataTableModel(nil, map[string]attr.Value{"answer": types.StringValue("old")})
+	state := dataTableState(t, prior)
+	response := &resource.ReadResponse{State: state}
+	implementation.Read(context.Background(), resource.ReadRequest{State: state}, response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("unexpected read diagnostics: %v", response.Diagnostics)
 	}
-	if attributePages != 2 || valuePages != 2 || len(model.Attributes.Elements()) != 2 {
-		t.Fatalf("expected complete pagination, attribute_pages=%d value_pages=%d attributes=%v", attributePages, valuePages, model.Attributes)
+	var model dataTableModel
+	response.Diagnostics.Append(response.State.Get(context.Background(), &model)...)
+	if response.Diagnostics.HasError() || attributePages != 2 || valuePages != 2 || len(model.Attributes.Elements()) != 2 {
+		t.Fatalf("expected complete framework read, attribute_pages=%d value_pages=%d attributes=%v diagnostics=%v", attributePages, valuePages, model.Attributes, response.Diagnostics)
 	}
 	answer, ok := model.DefaultValues.Elements()["answer"].(types.String)
 	if !ok {
 		t.Fatalf("expected string DEFAULT value, got %#v", model.DefaultValues.Elements()["answer"])
 	}
-	if got := answer.ValueString(); got != "42" {
-		t.Fatalf("unexpected reconstructed DEFAULT %q", got)
+	if got := answer.ValueString(); got != "42" || len(model.DefaultValues.Elements()) != 1 {
+		t.Fatalf("expected framework Read to retain the DEFAULT value and exclude ordinary records, got value=%q defaults=%#v", got, model.DefaultValues)
 	}
 }
 
@@ -754,8 +888,8 @@ func TestDataTableUpdateReconcilesFullLifecycleWithFreshLocks(t *testing.T) {
 		"same":   dataTableAttributeValue(false, types.StringNull()),
 	}, map[string]attr.Value{"change": types.StringValue("old"), "remove": types.StringValue("old")})
 	planned := sampleDataTableModel(map[string]attr.Value{
-		"add":    dataTableAttributeValueWithType("NUMBER", false),
-		"change": dataTableAttributeValueWithType("NUMBER", false),
+		"add":    dataTableAttributeValueWithType("NUMBER"),
+		"change": dataTableAttributeValueWithType("NUMBER"),
 		"same":   dataTableAttributeValue(false, types.StringNull()),
 	}, map[string]attr.Value{"add": types.StringValue("new"), "change": types.StringValue("new")})
 	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
@@ -946,9 +1080,9 @@ func dataTableAttributeValue(primary bool, description types.String) types.Objec
 	})
 }
 
-func dataTableAttributeValueWithType(valueType string, primary bool) types.Object {
+func dataTableAttributeValueWithType(valueType string) types.Object {
 	return types.ObjectValueMust(dataTableAttributeTypes, map[string]attr.Value{
-		"value_type": types.StringValue(valueType), "description": types.StringNull(), "primary": types.BoolValue(primary),
+		"value_type": types.StringValue(valueType), "description": types.StringNull(), "primary": types.BoolValue(false),
 	})
 }
 

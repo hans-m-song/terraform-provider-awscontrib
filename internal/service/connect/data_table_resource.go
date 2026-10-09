@@ -276,6 +276,7 @@ func (r *dataTableResource) Create(ctx context.Context, req resource.CreateReque
 			return err
 		}
 		refreshed.InstanceID = planned.InstanceID
+		refreshed.DefaultValues = planned.DefaultValues
 		resp.Diagnostics.Append(resp.State.Set(ctx, &refreshed)...)
 		return nil
 	})
@@ -371,6 +372,7 @@ func (r *dataTableResource) Update(ctx context.Context, req resource.UpdateReque
 			return err
 		}
 		refreshed.InstanceID = planned.InstanceID
+		refreshed.DefaultValues = planned.DefaultValues
 		resp.Diagnostics.Append(resp.State.Set(ctx, &refreshed)...)
 		return nil
 	})
@@ -631,7 +633,11 @@ func (r *dataTableResource) readRemoteSnapshot(ctx context.Context, key dataTabl
 			return dataTableRemoteSnapshot{}, errors.New("amazon Connect returned no data-table value page")
 		}
 		for _, value := range page.Values {
-			if aws.ToString(value.RecordId) != defaultDataTableRecordID {
+			if len(value.PrimaryValues) != 0 {
+				continue
+			}
+			recordID := aws.ToString(value.RecordId)
+			if recordID != "" && recordID != defaultDataTableRecordID {
 				continue
 			}
 			name := aws.ToString(value.AttributeName)
