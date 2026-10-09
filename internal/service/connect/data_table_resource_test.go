@@ -581,9 +581,10 @@ func TestDataTableCreateChildFailurePreservesRecoverableIdentityState(t *testing
 	}
 }
 
-func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
+func TestDataTableReadPaginatesAndClassifiesDefaultsByPrimaryValues(t *testing.T) {
 	attributePages := 0
 	valuePages := 0
+	var recordFilters [][]string
 	client := &fakeDataTableClient{
 		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
 			return &awsconnect.DescribeDataTableOutput{DataTable: sampleRemoteDataTable()}, nil
@@ -603,16 +604,16 @@ func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
 			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage {
 				t.Fatalf("expected data-table value page size %d, got %#v", maxDataTableValuesPerPage, input.MaxResults)
 			}
-			if !reflect.DeepEqual(input.RecordIds, []string{defaultDataTableRecordID}) {
-				t.Fatalf("expected DEFAULT record filter on every page, got %v", input.RecordIds)
-			}
+			recordFilters = append(recordFilters, append([]string(nil), input.RecordIds...))
 			if input.NextToken == nil {
-				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("answer"), RecordId: aws.String("ordinary"), Value: aws.String("ignored")}}, NextToken: aws.String("next")}, nil
+				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
+					{AttributeName: aws.String("arbitrary_record_id"), RecordId: aws.String("11111111-1111-4111-8111-111111111111"), Value: aws.String("included")},
+				}, NextToken: aws.String("next")}, nil
 			}
 			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
 				{AttributeName: aws.String("answer"), Value: aws.String("42"), LockVersion: &connecttypes.DataTableLockVersion{Value: aws.String("lock")}},
-				{AttributeName: aws.String("primary_record"), PrimaryValues: []connecttypes.PrimaryValueResponse{{AttributeName: aws.String("key"), Value: aws.String("ordinary")}}, Value: aws.String("ignored")},
-				{AttributeName: aws.String("explicit_record"), RecordId: aws.String("ordinary"), Value: aws.String("ignored")},
+				{AttributeName: aws.String("explicit_default_id"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("included")},
+				{AttributeName: aws.String("answer"), RecordId: aws.String("record-2"), PrimaryValues: []connecttypes.PrimaryValueResponse{{AttributeName: aws.String("key"), Value: aws.String("ordinary")}}, Value: aws.String("excluded")},
 			}}, nil
 		},
 	}
@@ -626,23 +627,36 @@ func TestDataTableReadPaginatesAndFiltersDefaultRecord(t *testing.T) {
 	}
 	var model dataTableModel
 	response.Diagnostics.Append(response.State.Get(context.Background(), &model)...)
-	if response.Diagnostics.HasError() || attributePages != 2 || valuePages != 2 || len(model.Attributes.Elements()) != 2 {
+	if response.Diagnostics.HasError() || attributePages != 2 || valuePages != 2 || len(recordFilters) != 2 || len(model.Attributes.Elements()) != 2 {
 		t.Fatalf("expected complete framework read, attribute_pages=%d value_pages=%d attributes=%v diagnostics=%v", attributePages, valuePages, model.Attributes, response.Diagnostics)
 	}
-	answer, ok := model.DefaultValues.Elements()["answer"].(types.String)
-	if !ok {
-		t.Fatalf("expected string DEFAULT value, got %#v", model.DefaultValues.Elements()["answer"])
+	for page, filters := range recordFilters {
+		if len(filters) != 0 {
+			t.Errorf("expected no record-ID filter on value page %d, got %v", page+1, filters)
+		}
 	}
-	if got := answer.ValueString(); got != "42" || len(model.DefaultValues.Elements()) != 1 {
-		t.Fatalf("expected framework Read to retain the DEFAULT value and exclude ordinary records, got value=%q defaults=%#v", got, model.DefaultValues)
+	expectedDefaults := map[string]string{
+		"answer":              "42",
+		"arbitrary_record_id": "included",
+		"explicit_default_id": "included",
+	}
+	if len(model.DefaultValues.Elements()) != len(expectedDefaults) {
+		t.Errorf("expected defaults classified by empty primary values, got %#v", model.DefaultValues)
+	}
+	for name, expected := range expectedDefaults {
+		value, ok := model.DefaultValues.Elements()[name].(types.String)
+		if !ok || value.ValueString() != expected {
+			t.Errorf("expected default %q=%q, got %#v", name, expected, model.DefaultValues.Elements()[name])
+		}
 	}
 }
 
-func TestDataTableUpdateSkipsUnchangedMetadata(t *testing.T) {
+func TestDataTableUpdateSkipsUnchangedMetadataAndDoesNotRecreateExistingDefault(t *testing.T) {
 	remote := sampleRemoteDataTable()
 	remote.Description = aws.String("")
 	metadataCalls := 0
 	describeCalls := 0
+	createCalls := 0
 	client := &fakeDataTableClient{
 		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
 			describeCalls++
@@ -656,17 +670,25 @@ func TestDataTableUpdateSkipsUnchangedMetadata(t *testing.T) {
 			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableAttributesPerPage {
 				t.Fatalf("expected data-table attribute page size %d, got %#v", maxDataTableAttributesPerPage, input.MaxResults)
 			}
-			return &awsconnect.ListDataTableAttributesOutput{}, nil
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("DisasterEnabled"), ValueType: connecttypes.DataTableAttributeValueTypeBoolean}}}, nil
 		},
 		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage || !reflect.DeepEqual(input.RecordIds, []string{defaultDataTableRecordID}) {
+			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage || len(input.RecordIds) != 0 {
 				t.Fatalf("unexpected DEFAULT value list request: %#v", input)
 			}
-			return &awsconnect.ListDataTableValuesOutput{}, nil
+			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{
+				AttributeName: aws.String("DisasterEnabled"), RecordId: aws.String("11111111-1111-4111-8111-111111111111"), Value: aws.String("false"),
+			}}}, nil
+		},
+		createValues: func(context.Context, *awsconnect.BatchCreateDataTableValueInput) (*awsconnect.BatchCreateDataTableValueOutput, error) {
+			createCalls++
+			return &awsconnect.BatchCreateDataTableValueOutput{}, nil
 		},
 	}
-	prior := sampleDataTableModel(nil, nil)
-	planned := sampleDataTableModel(nil, nil)
+	attributes := map[string]attr.Value{"DisasterEnabled": dataTableAttributeValueWithType("BOOLEAN")}
+	defaults := map[string]attr.Value{"DisasterEnabled": types.StringValue("false")}
+	prior := sampleDataTableModel(attributes, defaults)
+	planned := sampleDataTableModel(attributes, defaults)
 	response := &resource.UpdateResponse{State: dataTableState(t, prior)}
 	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
 	implementation.Update(context.Background(), resource.UpdateRequest{State: dataTableState(t, prior), Plan: dataTablePlan(t, planned)}, response)
@@ -675,6 +697,9 @@ func TestDataTableUpdateSkipsUnchangedMetadata(t *testing.T) {
 	}
 	if metadataCalls != 0 {
 		t.Fatalf("expected unchanged metadata to avoid UpdateDataTableMetadata, calls=%d", metadataCalls)
+	}
+	if createCalls != 0 {
+		t.Fatalf("expected existing DEFAULT value to be adopted on the next apply, create_calls=%d", createCalls)
 	}
 	if describeCalls != 2 {
 		t.Fatalf("expected unchanged DEFAULT values to avoid lock refresh, describe_calls=%d", describeCalls)
@@ -832,11 +857,14 @@ func TestDataTableUpdateReconcilesFullLifecycleWithFreshLocks(t *testing.T) {
 				}}, nil
 			}
 		},
-		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+			if len(input.RecordIds) != 0 {
+				t.Fatalf("expected unfiltered DEFAULT value list request, got %#v", input.RecordIds)
+			}
 			if describeCount < 3 {
 				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
-					{AttributeName: aws.String("change"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("old"), LockVersion: updateLock},
-					{AttributeName: aws.String("remove"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("old"), LockVersion: deleteLock},
+					{AttributeName: aws.String("change"), Value: aws.String("old"), LockVersion: updateLock},
+					{AttributeName: aws.String("remove"), RecordId: aws.String("arbitrary-record-id"), Value: aws.String("old"), LockVersion: deleteLock},
 				}}, nil
 			}
 			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{

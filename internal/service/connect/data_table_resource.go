@@ -624,7 +624,7 @@ func (r *dataTableResource) readRemoteSnapshot(ctx context.Context, key dataTabl
 	for {
 		page, err := r.client.ListDataTableValues(ctx, &awsconnect.ListDataTableValuesInput{
 			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID),
-			MaxResults: aws.Int32(maxDataTableValuesPerPage), RecordIds: []string{defaultDataTableRecordID}, NextToken: nextToken,
+			MaxResults: aws.Int32(maxDataTableValuesPerPage), NextToken: nextToken,
 		})
 		if err != nil {
 			return dataTableRemoteSnapshot{}, fmt.Errorf("could not list data-table values: %w", err)
@@ -634,10 +634,6 @@ func (r *dataTableResource) readRemoteSnapshot(ctx context.Context, key dataTabl
 		}
 		for _, value := range page.Values {
 			if len(value.PrimaryValues) != 0 {
-				continue
-			}
-			recordID := aws.ToString(value.RecordId)
-			if recordID != "" && recordID != defaultDataTableRecordID {
 				continue
 			}
 			name := aws.ToString(value.AttributeName)

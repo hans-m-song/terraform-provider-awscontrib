@@ -6,8 +6,10 @@
 
 ## Latest review
 
-- M14-T01: approved DEFAULT apply/refresh correction is implemented locally. Create/Update retain planned defaults after successful mutations; ordinary Read accepts DEFAULT-filtered values with omitted record IDs and empty primary values, and remains authoritative for drift.
-- Mocked regressions reproduced failures before the fix. Full unit tests, formatting, lint (zero issues with writable cache), generation with no reference diff, and independent focused verification passed. No AWS calls, release, or deployment have been performed. Exact production response remains unknown. Next action: review and release the local patch, then verify the reported plan with that build; capture a redacted value-list response if the diff persists.
+- M14-T02 is complete locally and uncommitted. The owner approved removing the DEFAULT record-ID assumption after repeated apply attempted duplicate default creation. Owner-run CLI showed the stored default has a UUID record ID and null primary values. Table refresh now paginates without a record-ID filter and classifies defaults solely by empty primary values; record resource filters remain unchanged.
+- Regressions failed before the fix and passed after. Full tests, independent focused testing, formatting, lint (zero issues), generation without reference changes, and whitespace checks passed. No agent-run AWS calls were made. Next actions: review/commit/release the follow-up patch, then run a normal plan against the existing table using that provider build. Expected result: no proposed default addition. Live verification of the corrected provider remains pending.
+
+- M14-T01 was merged in PR #34 (local merge commit `9d68531`). Create/Update planned-default retention remains, but its record-ID assumptions were incomplete and are superseded by M14-T02.
 
 - Follow-up M13-T01 is complete: the owner approved optional `override_type`. Implemented optional/computed schema, enum omission, returned-type/null normalization, and stored-type retention after configuration removal. Created identity is recorded before type readback for recovery on errors.
 - Full unit tests, focused independent tests, formatting, lint (zero issues with writable cache), and two deterministic generated-document runs passed. Real AWS remains unverified. The owner requested a PR; changes are prepared for branch `fix/optional-hours-override-type` targeting `main`. No release or merge was requested.

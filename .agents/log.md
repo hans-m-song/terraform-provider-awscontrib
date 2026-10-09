@@ -4,6 +4,10 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 
 ## 2026-10-09 — Data-table DEFAULT state consistency
 
+- Follow-up M14-T02 is complete locally with owner approval. The owner reported successful replacement followed by another apply failing with an existing-value error. The prior change did not resolve persistent default discovery. An owner-run CLI lookup returned the expected default with a UUID record ID and null primary values, directly confirming that the prior response gate discarded it.
+- Implemented correction: remove table-value record-ID filtering and classify defaults by empty primary values, irrespective of record ID. Pagination/classification regression failed before the fix, then passed; full tests, independent focused tests, formatting, lint (zero issues), generation with no reference diff, and whitespace checks passed. No agent-run AWS calls were made; corrected provider live behavior remains unverified.
+- Supersedes the earlier fixed `DEFAULT` identity and request-filter assumptions. Table reads must paginate all values; ordinary record reads retain their actual record-ID filters. Expected tradeoff: more value pages for tables containing many ordinary records.
+
 - The owner reported a clean Create returning null DEFAULT values despite successful remote creation, followed by plan proposing defaults already visible in saved state.
 - Mocked Create and Update regressions reproduced the map-to-null failure before the fix. Successful apply now retains the exact planned DEFAULT map after the final remote refresh, including empty-map versus null semantics. Ordinary Read remains authoritative.
 - DEFAULT-filtered list responses now accept omitted record IDs when primary values are empty, while excluding explicit non-default IDs and nonempty primary values. AWS documents `RecordId` as optional: https://docs.aws.amazon.com/connect/latest/APIReference/API_DataTableValueSummary.html
