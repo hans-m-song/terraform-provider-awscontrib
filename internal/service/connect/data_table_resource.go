@@ -41,7 +41,7 @@ type dataTableClient interface {
 	BatchCreateDataTableValue(context.Context, *awsconnect.BatchCreateDataTableValueInput, ...func(*awsconnect.Options)) (*awsconnect.BatchCreateDataTableValueOutput, error)
 	BatchUpdateDataTableValue(context.Context, *awsconnect.BatchUpdateDataTableValueInput, ...func(*awsconnect.Options)) (*awsconnect.BatchUpdateDataTableValueOutput, error)
 	BatchDeleteDataTableValue(context.Context, *awsconnect.BatchDeleteDataTableValueInput, ...func(*awsconnect.Options)) (*awsconnect.BatchDeleteDataTableValueOutput, error)
-	ListDataTableValues(context.Context, *awsconnect.ListDataTableValuesInput, ...func(*awsconnect.Options)) (*awsconnect.ListDataTableValuesOutput, error)
+	BatchDescribeDataTableValue(context.Context, *awsconnect.BatchDescribeDataTableValueInput, ...func(*awsconnect.Options)) (*awsconnect.BatchDescribeDataTableValueOutput, error)
 }
 
 type dataTableResource struct {
@@ -618,48 +618,107 @@ func (r *dataTableResource) readRemoteSnapshot(ctx context.Context, key dataTabl
 		}
 		seenAttributeTokens[token] = struct{}{}
 	}
-	defaultValues := make(map[string]dataTableRemoteDefault)
-	nextToken = nil
-	seenValueTokens := make(map[string]struct{})
-	for {
-		page, err := r.client.ListDataTableValues(ctx, &awsconnect.ListDataTableValuesInput{
-			DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID),
-			MaxResults: aws.Int32(maxDataTableValuesPerPage), RecordIds: []string{defaultDataTableRecordID}, NextToken: nextToken,
-		})
-		if err != nil {
-			return dataTableRemoteSnapshot{}, fmt.Errorf("could not list data-table values: %w", err)
-		}
-		if page == nil {
-			return dataTableRemoteSnapshot{}, errors.New("amazon Connect returned no data-table value page")
-		}
-		for _, value := range page.Values {
-			if len(value.PrimaryValues) != 0 {
-				continue
-			}
-			recordID := aws.ToString(value.RecordId)
-			if recordID != "" && recordID != defaultDataTableRecordID {
-				continue
-			}
-			name := aws.ToString(value.AttributeName)
-			if name == "" {
-				return dataTableRemoteSnapshot{}, errors.New("amazon Connect returned a DEFAULT value without an attribute name")
-			}
-			if _, duplicate := defaultValues[name]; duplicate {
-				return dataTableRemoteSnapshot{}, fmt.Errorf("amazon Connect returned duplicate DEFAULT value for attribute %q", name)
-			}
-			defaultValues[name] = dataTableRemoteDefault{value: aws.ToString(value.Value), lockVersion: value.LockVersion}
-		}
-		nextToken = page.NextToken
-		token := aws.ToString(nextToken)
-		if token == "" {
-			break
-		}
-		if _, repeated := seenValueTokens[token]; repeated {
-			return dataTableRemoteSnapshot{}, fmt.Errorf("amazon Connect repeated data-table value pagination token %q", token)
-		}
-		seenValueTokens[token] = struct{}{}
+	defaultValues, err := r.readDefaultValues(ctx, key, attributes)
+	if err != nil {
+		return dataTableRemoteSnapshot{}, err
 	}
 	return dataTableRemoteSnapshot{table: *described.DataTable, attributes: attributes, defaultValues: defaultValues}, nil
+}
+
+func (r *dataTableResource) readDefaultValues(ctx context.Context, key dataTableKey, attributes map[string]dataTableAttributeConfiguration) (map[string]dataTableRemoteDefault, error) {
+	names := make([]string, 0, len(attributes))
+	for name, attribute := range attributes {
+		if !attribute.primary {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	values := make([]connecttypes.DataTableValueIdentifier, 0, len(names))
+	for _, name := range names {
+		values = append(values, connecttypes.DataTableValueIdentifier{
+			AttributeName: aws.String(name),
+			PrimaryValues: []connecttypes.PrimaryValue{},
+		})
+	}
+	defaults := make(map[string]dataTableRemoteDefault, len(values))
+	if len(values) == 0 {
+		return defaults, nil
+	}
+	output, err := r.client.BatchDescribeDataTableValue(ctx, &awsconnect.BatchDescribeDataTableValueInput{
+		DataTableId: aws.String(key.dataTableID), InstanceId: aws.String(key.instanceID), Values: values,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not batch describe DEFAULT values: %w", err)
+	}
+	if output == nil {
+		return nil, errors.New("amazon Connect returned no batch-describe DEFAULT response")
+	}
+	requested := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		requested[name] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(names))
+	for _, value := range output.Successful {
+		name := aws.ToString(value.AttributeName)
+		if name == "" {
+			return nil, errors.New("amazon Connect returned a DEFAULT success without an attribute name")
+		}
+		if _, ok := requested[name]; !ok {
+			return nil, fmt.Errorf("amazon Connect returned an unrequested DEFAULT value for attribute %q", name)
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return nil, fmt.Errorf("amazon Connect returned duplicate DEFAULT results for attribute %q", name)
+		}
+		seen[name] = struct{}{}
+		if len(value.PrimaryValues) != 0 {
+			return nil, fmt.Errorf("amazon Connect returned nonempty primary values for DEFAULT attribute %q", name)
+		}
+		if value.Value == nil {
+			return nil, fmt.Errorf("amazon Connect returned no value for DEFAULT attribute %q", name)
+		}
+		if value.LockVersion == nil {
+			return nil, fmt.Errorf("amazon Connect returned no lock version for DEFAULT attribute %q", name)
+		}
+		defaults[name] = dataTableRemoteDefault{value: aws.ToString(value.Value), lockVersion: value.LockVersion}
+	}
+	failed := make([]string, 0, len(output.Failed))
+	for _, failure := range output.Failed {
+		name := aws.ToString(failure.AttributeName)
+		if name == "" {
+			return nil, errors.New("amazon Connect returned a DEFAULT failure without an attribute name")
+		}
+		if _, ok := requested[name]; !ok {
+			return nil, fmt.Errorf("amazon Connect returned an unrequested DEFAULT failure for attribute %q", name)
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return nil, fmt.Errorf("amazon Connect returned duplicate DEFAULT results for attribute %q", name)
+		}
+		seen[name] = struct{}{}
+		if len(failure.PrimaryValues) != 0 {
+			return nil, fmt.Errorf("amazon Connect returned nonempty primary values for failed DEFAULT attribute %q", name)
+		}
+		if failure.Message == nil {
+			return nil, fmt.Errorf("amazon Connect returned no failure message for DEFAULT attribute %q", name)
+		}
+		message := aws.ToString(failure.Message)
+		if message != "Value not found." {
+			failed = append(failed, name+": "+message)
+		}
+	}
+	if len(failed) != 0 {
+		sort.Strings(failed)
+		return nil, fmt.Errorf("batch describe DEFAULT values failed: %s", strings.Join(failed, "; "))
+	}
+	missing := make([]string, 0)
+	for _, name := range names {
+		if _, ok := seen[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) != 0 {
+		return nil, fmt.Errorf("amazon Connect returned an incomplete DEFAULT batch response; no result for attributes %q", strings.Join(missing, ", "))
+	}
+	return defaults, nil
 }
 
 func dataTableMetadataEqual(remote connecttypes.DataTable, desired dataTableConfiguration) bool {

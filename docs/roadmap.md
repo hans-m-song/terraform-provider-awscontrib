@@ -14,6 +14,30 @@ Task and milestone IDs are immutable. Removed IDs are not reused.
 
 ## M14 — Data-table DEFAULT apply consistency
 
+### M14-T03 — Read defaults by attribute and empty primary values
+
+- Status: Complete (2026-10-09).
+- Goal: discover defaults without scanning ordinary record values.
+- Scope: replace table-value listing with BatchDescribeDataTableValue for every remote non-primary attribute, using explicit empty primary values; migrate mocks and regressions.
+- Constraints: record resource unchanged; preserve import, authoritative ownership, drift, and lock handling; no agent-run AWS calls.
+- Acceptance: existing defaults and locks are mapped; exact observed `Value not found.` means absence; all other failures and malformed/incomplete replies return diagnostics; unconfigured remote defaults remain discoverable.
+- Verification: targeted regressions, full tests, formatting, lint, generation, independent testing, SDK request serialization review.
+- Blockers: none for local implementation. Contract limitation: missing-value classification depends on an observed message; AWS supplies no structured per-item failure code.
+
+Verification on 2026-10-09: targeted regressions failed before the implementation and passed afterward; full tests, formatting, lint (zero issues), generation with no reference diff, independent focused verification, and offline pinned-SDK serialization validation passed. No agent-run AWS calls were made. Targeted-read changes remain uncommitted and unreleased.
+
+### M14-T02 — Discover defaults by primary-value absence
+
+- Status: Complete (2026-10-09).
+- Goal: discover stored defaults on refresh so subsequent applies do not attempt duplicate creation.
+- Scope: remove table-value record-ID filtering and classify defaults by empty primary values; paginated mocked lifecycle regressions.
+- Constraints: no AWS calls; keep non-default record resource behavior unchanged; preserve authoritative default ownership.
+- Acceptance: arbitrary or omitted default record IDs are accepted; records with primary values are excluded; repeated apply does not recreate existing defaults; update and deletion use remote locks.
+- Verification: regressions fail before fix and pass after; full unit suite, formatting, lint, generation, independent testing.
+- Blockers: none for local implementation. Owner-run CLI returned the expected default with a UUID record ID and null primary values, confirming the previous response gate excluded it; live verification of the corrected provider remains supplementary.
+
+Verification on 2026-10-09: pagination/classification regression failed before the fix and passed afterward; full unit suite, independent focused testing, formatting, lint (zero issues), generation with no reference diff, and whitespace checks passed. Follow-up changes remain uncommitted and unreleased; no agent-run AWS calls were made.
+
 ### M14-T01 — Preserve successfully applied defaults
 
 - Status: Complete (2026-10-09).
@@ -410,7 +434,7 @@ Status: Complete.
 - Goal: define authoritative ownership for table metadata, attributes, and explicit DEFAULT values.
 - Scope: combined `awscontrib_connect_data_table` schema, lifecycle ordering, import, lock versions, and partial batch failures.
 - Constraints: attributes are keyed by name for stable Terraform addressing; removal deletes the remote attribute; lock versions are computed operational tokens; no automatic rollback after partial success.
-- Acceptance criteria: `attributes` and `default_values` have deterministic map semantics; omitted `PrimaryValues` creates the concrete AWS `RecordId` `DEFAULT`; absence from `default_values` means no stored default even if the console renders an implicit empty default row; import adopts the complete remote schema/default set.
+- Acceptance criteria: `attributes` and `default_values` have deterministic map semantics; omitted `PrimaryValues` creates a default value; defaults are identified by empty primary values, irrespective of record ID (corrected by M14-T02); absence from `default_values` means no stored default even if the console renders an implicit empty default row; import adopts the complete remote schema/default set.
 - Roles: architect, explorer, main agent.
 - Dependencies: `M0`.
 - Verification gates: current AWS API and pinned SDK audit plus the owner's 2026-08-19 CLI observations recorded in the architecture log.
@@ -507,7 +531,7 @@ Status: Complete.
 - Goal: eliminate unnecessary requests and reduce pagination without weakening state ownership or drift detection.
 - Scope: all registered Connect resources and data sources; filtered data-table DEFAULT reads; narrow record filters; explicit page sizes; batch-limit and redundant-refresh audit.
 - Constraints: preserve complete pagination, exact-match semantics, unrelated association preservation, authoritative table and record ownership, lock-version handling, and recoverable partial mutations.
-- Acceptance criteria: table refresh requests only `RecordId` `DEFAULT`; record reads remain narrowly filtered; every paginator has a verified page-size decision; batch-capable mutations use documented limits; retained pre-reads and post-reads have correctness justification.
+- Acceptance criteria: record reads remain narrowly filtered; every paginator has a verified page-size decision; batch-capable mutations use documented limits; retained pre-reads and post-reads have correctness justification. The original table-refresh `DEFAULT` record filter is superseded by M14-T02 and M14-T03: table defaults are now batch-described by remote non-primary attribute name and empty primary values.
 - Roles: explorer, executor, tester, main agent.
 - Dependencies: `M7-T01` contract may proceed in parallel until integration.
 - Verification gates: exact request-input and request-count tests for every changed surface, focused lifecycle tests, and full unit tests.
