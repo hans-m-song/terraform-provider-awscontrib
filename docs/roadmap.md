@@ -14,6 +14,18 @@ Task and milestone IDs are immutable. Removed IDs are not reused.
 
 ## M14 — Data-table DEFAULT apply consistency
 
+### M14-T03 — Read defaults by attribute and empty primary values
+
+- Status: Complete (2026-10-09).
+- Goal: discover defaults without scanning ordinary record values.
+- Scope: replace table-value listing with BatchDescribeDataTableValue for every remote non-primary attribute, using explicit empty primary values; migrate mocks and regressions.
+- Constraints: record resource unchanged; preserve import, authoritative ownership, drift, and lock handling; no agent-run AWS calls.
+- Acceptance: existing defaults and locks are mapped; exact observed `Value not found.` means absence; all other failures and malformed/incomplete replies return diagnostics; unconfigured remote defaults remain discoverable.
+- Verification: targeted regressions, full tests, formatting, lint, generation, independent testing, SDK request serialization review.
+- Blockers: none for local implementation. Contract limitation: missing-value classification depends on an observed message; AWS supplies no structured per-item failure code.
+
+Verification on 2026-10-09: targeted regressions failed before the implementation and passed afterward; full tests, formatting, lint (zero issues), generation with no reference diff, independent focused verification, and offline pinned-SDK serialization validation passed. No agent-run AWS calls were made. Targeted-read changes remain uncommitted and unreleased.
+
 ### M14-T02 — Discover defaults by primary-value absence
 
 - Status: Complete (2026-10-09).
@@ -519,7 +531,7 @@ Status: Complete.
 - Goal: eliminate unnecessary requests and reduce pagination without weakening state ownership or drift detection.
 - Scope: all registered Connect resources and data sources; filtered data-table DEFAULT reads; narrow record filters; explicit page sizes; batch-limit and redundant-refresh audit.
 - Constraints: preserve complete pagination, exact-match semantics, unrelated association preservation, authoritative table and record ownership, lock-version handling, and recoverable partial mutations.
-- Acceptance criteria: record reads remain narrowly filtered; every paginator has a verified page-size decision; batch-capable mutations use documented limits; retained pre-reads and post-reads have correctness justification. The original table-refresh `DEFAULT` record filter is superseded by M14-T02: table reads paginate without record-ID filters and select defaults by empty primary values.
+- Acceptance criteria: record reads remain narrowly filtered; every paginator has a verified page-size decision; batch-capable mutations use documented limits; retained pre-reads and post-reads have correctness justification. The original table-refresh `DEFAULT` record filter is superseded by M14-T02 and M14-T03: table defaults are now batch-described by remote non-primary attribute name and empty primary values.
 - Roles: explorer, executor, tester, main agent.
 - Dependencies: `M7-T01` contract may proceed in parallel until integration.
 - Verification gates: exact request-input and request-count tests for every changed surface, focused lifecycle tests, and full unit tests.

@@ -64,7 +64,7 @@ operation bucket: one attempt per 500 ms, burst 1
 Amazon Connect
 ```
 
-This is deliberate best-effort request smoothing, not account-wide quota enforcement. Separate provider configurations, provider processes, Terraform runs, AWS providers, CLI commands, and external applications do not share the scheduler. Paginated operations use explicit page sizes, and record refreshes retain their record-ID filters. Table refresh reads all value pages and selects defaults by empty primary values because default record IDs are not a fixed sentinel.
+This is deliberate best-effort request smoothing, not account-wide quota enforcement. Separate provider configurations, provider processes, Terraform runs, AWS providers, CLI commands, and external applications do not share the scheduler. Paginated operations use explicit page sizes, and record refreshes retain their record-ID filters. Table refresh lists all attributes, then requests defaults for every remote non-primary attribute through `BatchDescribeDataTableValue` with explicit empty primary values. It does not scan ordinary record values.
 
 ## Implemented association contract
 
@@ -121,7 +121,9 @@ The data-table resource combines table metadata and its complete managed attribu
 
 As of 2026-10-06, hours override `override_type` is optional and computed. Omitted creation delegates type selection to Amazon Connect and reads back its response without assuming a `STANDARD` default. Removing a configured type retains the stored behavior; explicit `STANDARD`, `OPEN`, and `CLOSED` remain supported. An absent remote type maps to null.
 
-As of 2026-10-09, successful table Create and Update preserve the exact planned DEFAULT map after their final refresh. Ordinary Read remains authoritative for drift and selects defaults by empty primary values, including defaults with UUID record IDs. Values with primary keys remain excluded. An owner-run CLI lookup returned an existing default with a UUID record ID, null primary values, and the expected value, confirming that the previous record-ID gate discarded it. The corrected provider has not yet been verified against AWS.
+As of 2026-10-09, successful table Create and Update preserve the exact planned DEFAULT map after their final refresh. Ordinary Read remains authoritative for drift and retrieves defaults by attribute name with empty primary values, irrespective of record ID. It queries all remote non-primary attributes, including ones absent from configuration, so import and default deletion remain authoritative. The exact observed per-item message `Value not found.` means no stored default; other failures and unusable responses return diagnostics. This message is owner-observed behavior, not a documented stable error code. The corrected provider has not yet been verified against AWS.
+
+Table refresh requires `connect:BatchDescribeDataTableValue` permission. See the [batch describe API](https://docs.aws.amazon.com/connect/latest/APIReference/API_BatchDescribeDataTableValue.html) and [AWS authorization reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_connect.html). The pinned SDK serializes non-nil empty primary-value slices as `[]`, matching the owner-tested CLI request.
 
 ## Planned discovery contract
 

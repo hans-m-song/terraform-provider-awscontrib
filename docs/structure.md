@@ -112,6 +112,17 @@ Service packages must not import `internal/provider` or sibling services. Shared
 
 ## Request scheduling boundary
 
+Table DEFAULT refresh has a targeted read boundary:
+
+```text
+ListDataTableAttributes (all pages)
+  -> sorted remote non-primary attribute names
+  -> BatchDescribeDataTableValue (PrimaryValues: [])
+  -> stored defaults + lock versions
+```
+
+Only the exact observed missing-value item message is treated as absence; other failures or malformed/incomplete replies abort refresh. Non-default record resources keep their existing record-ID-filtered reads.
+
 All Connect resource and data-source constructors configured by one provider instance receive the same `conns.Client`, whose `Connect` method returns one cached SDK client. Its middleware runs after the SDK retry middleware so every physical attempt is scheduled independently.
 
 ```text

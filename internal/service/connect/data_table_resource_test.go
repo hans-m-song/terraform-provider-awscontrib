@@ -39,7 +39,7 @@ type fakeDataTableClient struct {
 	createValues    func(context.Context, *awsconnect.BatchCreateDataTableValueInput) (*awsconnect.BatchCreateDataTableValueOutput, error)
 	updateValues    func(context.Context, *awsconnect.BatchUpdateDataTableValueInput) (*awsconnect.BatchUpdateDataTableValueOutput, error)
 	deleteValues    func(context.Context, *awsconnect.BatchDeleteDataTableValueInput) (*awsconnect.BatchDeleteDataTableValueOutput, error)
-	listValues      func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error)
+	describeValues  func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error)
 }
 
 func (f *fakeDataTableClient) CreateDataTable(ctx context.Context, input *awsconnect.CreateDataTableInput, _ ...func(*awsconnect.Options)) (*awsconnect.CreateDataTableOutput, error) {
@@ -119,11 +119,28 @@ func (f *fakeDataTableClient) BatchDeleteDataTableValue(ctx context.Context, inp
 	return f.deleteValues(ctx, input)
 }
 
-func (f *fakeDataTableClient) ListDataTableValues(ctx context.Context, input *awsconnect.ListDataTableValuesInput, _ ...func(*awsconnect.Options)) (*awsconnect.ListDataTableValuesOutput, error) {
-	if f.listValues == nil {
-		return &awsconnect.ListDataTableValuesOutput{}, nil
+func (f *fakeDataTableClient) BatchDescribeDataTableValue(ctx context.Context, input *awsconnect.BatchDescribeDataTableValueInput, _ ...func(*awsconnect.Options)) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+	if f.describeValues == nil {
+		return &awsconnect.BatchDescribeDataTableValueOutput{}, nil
 	}
-	return f.listValues(ctx, input)
+	return f.describeValues(ctx, input)
+}
+
+func dataTableBatchSuccess(name, value string, lockVersion *connecttypes.DataTableLockVersion) connecttypes.BatchDescribeDataTableValueSuccessResult {
+	if lockVersion == nil {
+		lockVersion = &connecttypes.DataTableLockVersion{Value: aws.String("lock-" + name)}
+	}
+	return connecttypes.BatchDescribeDataTableValueSuccessResult{
+		AttributeId: aws.String("attribute-" + name), AttributeName: aws.String(name),
+		LockVersion: lockVersion, PrimaryValues: []connecttypes.PrimaryValueResponse{},
+		RecordId: aws.String("11111111-1111-4111-8111-111111111111"), Value: aws.String(value),
+	}
+}
+
+func dataTableBatchMissing(name string) connecttypes.BatchDescribeDataTableValueFailureResult {
+	return connecttypes.BatchDescribeDataTableValueFailureResult{
+		AttributeName: aws.String(name), Message: aws.String("Value not found."), PrimaryValues: []connecttypes.PrimaryValue{},
+	}
 }
 
 func TestDataTableMetadataSchemaAndFactory(t *testing.T) {
@@ -347,8 +364,8 @@ func TestDataTableCreateRefreshesAuthoritativeState(t *testing.T) {
 				{Name: aws.String("value"), ValueType: connecttypes.DataTableAttributeValueTypeText},
 			}}, nil
 		},
-		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("value"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("default")}}}, nil
+		describeValues: func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			return &awsconnect.BatchDescribeDataTableValueOutput{Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{dataTableBatchSuccess("value", "default", nil)}}, nil
 		},
 	}
 	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
@@ -394,8 +411,8 @@ func TestDataTableCreateRetainsPlannedDefaultsWhenImmediateReadIsEmpty(t *testin
 		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
 			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("DisasterEnabled"), ValueType: connecttypes.DataTableAttributeValueTypeBoolean}}}, nil
 		},
-		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			return &awsconnect.ListDataTableValuesOutput{}, nil
+		describeValues: func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			return &awsconnect.BatchDescribeDataTableValueOutput{Failed: []connecttypes.BatchDescribeDataTableValueFailureResult{dataTableBatchMissing("DisasterEnabled")}}, nil
 		},
 	}
 	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
@@ -435,12 +452,12 @@ func TestDataTableUpdateRetainsPlannedDefaultsWhenImmediateReadIsEmpty(t *testin
 		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
 			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("DisasterEnabled"), ValueType: connecttypes.DataTableAttributeValueTypeBoolean}}}, nil
 		},
-		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
+		describeValues: func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
 			valueReads++
 			if valueReads < 3 {
-				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("DisasterEnabled"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("true"), LockVersion: lockVersion}}}, nil
+				return &awsconnect.BatchDescribeDataTableValueOutput{Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{dataTableBatchSuccess("DisasterEnabled", "true", lockVersion)}}, nil
 			}
-			return &awsconnect.ListDataTableValuesOutput{}, nil
+			return &awsconnect.BatchDescribeDataTableValueOutput{Failed: []connecttypes.BatchDescribeDataTableValueFailureResult{dataTableBatchMissing("DisasterEnabled")}}, nil
 		},
 		updateValues: func(_ context.Context, input *awsconnect.BatchUpdateDataTableValueInput) (*awsconnect.BatchUpdateDataTableValueOutput, error) {
 			if len(input.Values) != 1 || aws.ToString(input.Values[0].Value) != "false" || input.Values[0].LockVersion != lockVersion {
@@ -474,9 +491,6 @@ func TestDataTableUpdateRetainsAnEmptyPlannedDefaultMap(t *testing.T) {
 		},
 		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
 			return &awsconnect.ListDataTableAttributesOutput{}, nil
-		},
-		listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			return &awsconnect.ListDataTableValuesOutput{}, nil
 		},
 	}
 	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
@@ -531,8 +545,8 @@ func TestDataTableUpdateBatchFailuresAreActionableAndKeepPriorState(t *testing.T
 				listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
 					return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("value"), ValueType: connecttypes.DataTableAttributeValueTypeText}}}, nil
 				},
-				listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-					return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{AttributeName: aws.String("value"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("old"), LockVersion: lockVersion}}}, nil
+				describeValues: func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+					return &awsconnect.BatchDescribeDataTableValueOutput{Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{dataTableBatchSuccess("value", "old", lockVersion)}}, nil
 				},
 			}
 			testCase.configureFailure(client)
@@ -581,10 +595,9 @@ func TestDataTableCreateChildFailurePreservesRecoverableIdentityState(t *testing
 	}
 }
 
-func TestDataTableReadPaginatesAndClassifiesDefaultsByPrimaryValues(t *testing.T) {
+func TestDataTableReadPaginatesAttributesAndDescribesRemoteDefaults(t *testing.T) {
 	attributePages := 0
-	valuePages := 0
-	var recordFilters [][]string
+	describeCalls := 0
 	client := &fakeDataTableClient{
 		describeTable: func(context.Context, *awsconnect.DescribeDataTableInput) (*awsconnect.DescribeDataTableOutput, error) {
 			return &awsconnect.DescribeDataTableOutput{DataTable: sampleRemoteDataTable()}, nil
@@ -595,26 +608,32 @@ func TestDataTableReadPaginatesAndClassifiesDefaultsByPrimaryValues(t *testing.T
 				t.Fatalf("expected data-table attribute page size %d, got %#v", maxDataTableAttributesPerPage, input.MaxResults)
 			}
 			if input.NextToken == nil {
-				return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("key"), ValueType: connecttypes.DataTableAttributeValueTypeText, Primary: true}}, NextToken: aws.String("next")}, nil
-			}
-			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("answer"), ValueType: connecttypes.DataTableAttributeValueTypeNumber, Description: aws.String("description")}}}, nil
-		},
-		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			valuePages++
-			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage {
-				t.Fatalf("expected data-table value page size %d, got %#v", maxDataTableValuesPerPage, input.MaxResults)
-			}
-			recordFilters = append(recordFilters, append([]string(nil), input.RecordIds...))
-			if input.NextToken == nil {
-				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
-					{AttributeName: aws.String("arbitrary_record_id"), RecordId: aws.String("11111111-1111-4111-8111-111111111111"), Value: aws.String("included")},
+				return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{
+					{Name: aws.String("key"), ValueType: connecttypes.DataTableAttributeValueTypeText, Primary: true},
+					{Name: aws.String("arbitrary_record_id"), ValueType: connecttypes.DataTableAttributeValueTypeText},
 				}, NextToken: aws.String("next")}, nil
 			}
-			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
-				{AttributeName: aws.String("answer"), Value: aws.String("42"), LockVersion: &connecttypes.DataTableLockVersion{Value: aws.String("lock")}},
-				{AttributeName: aws.String("explicit_default_id"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("included")},
-				{AttributeName: aws.String("answer"), RecordId: aws.String("record-2"), PrimaryValues: []connecttypes.PrimaryValueResponse{{AttributeName: aws.String("key"), Value: aws.String("ordinary")}}, Value: aws.String("excluded")},
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{
+				{Name: aws.String("answer"), ValueType: connecttypes.DataTableAttributeValueTypeNumber, Description: aws.String("description")},
+				{Name: aws.String("explicit_default_id"), ValueType: connecttypes.DataTableAttributeValueTypeText},
 			}}, nil
+		},
+		describeValues: func(_ context.Context, input *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			describeCalls++
+			wantNames := []string{"answer", "arbitrary_record_id", "explicit_default_id"}
+			if len(input.Values) != len(wantNames) {
+				t.Fatalf("expected a DEFAULT request for all remote non-primary attributes, got %#v", input.Values)
+			}
+			output := &awsconnect.BatchDescribeDataTableValueOutput{}
+			values := map[string]string{"answer": "42", "arbitrary_record_id": "included", "explicit_default_id": "included"}
+			for index, identifier := range input.Values {
+				name := aws.ToString(identifier.AttributeName)
+				if name != wantNames[index] || identifier.PrimaryValues == nil || len(identifier.PrimaryValues) != 0 {
+					t.Fatalf("unexpected DEFAULT request at index %d: %#v", index, identifier)
+				}
+				output.Successful = append(output.Successful, dataTableBatchSuccess(name, values[name], nil))
+			}
+			return output, nil
 		},
 	}
 	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
@@ -627,13 +646,8 @@ func TestDataTableReadPaginatesAndClassifiesDefaultsByPrimaryValues(t *testing.T
 	}
 	var model dataTableModel
 	response.Diagnostics.Append(response.State.Get(context.Background(), &model)...)
-	if response.Diagnostics.HasError() || attributePages != 2 || valuePages != 2 || len(recordFilters) != 2 || len(model.Attributes.Elements()) != 2 {
-		t.Fatalf("expected complete framework read, attribute_pages=%d value_pages=%d attributes=%v diagnostics=%v", attributePages, valuePages, model.Attributes, response.Diagnostics)
-	}
-	for page, filters := range recordFilters {
-		if len(filters) != 0 {
-			t.Errorf("expected no record-ID filter on value page %d, got %v", page+1, filters)
-		}
+	if response.Diagnostics.HasError() || attributePages != 2 || describeCalls != 1 || len(model.Attributes.Elements()) != 4 {
+		t.Fatalf("expected complete framework read, attribute_pages=%d describe_calls=%d attributes=%v diagnostics=%v", attributePages, describeCalls, model.Attributes, response.Diagnostics)
 	}
 	expectedDefaults := map[string]string{
 		"answer":              "42",
@@ -648,6 +662,241 @@ func TestDataTableReadPaginatesAndClassifiesDefaultsByPrimaryValues(t *testing.T
 		if !ok || value.ValueString() != expected {
 			t.Errorf("expected default %q=%q, got %#v", name, expected, model.DefaultValues.Elements()[name])
 		}
+	}
+}
+
+func TestDataTableReadBatchDescribesSortedRemoteNonPrimaryDefaults(t *testing.T) {
+	lockVersions := map[string]*connecttypes.DataTableLockVersion{
+		"a_unconfigured": {Value: aws.String("lock-a")},
+		"z_removed":      {Value: aws.String("lock-z")},
+	}
+	var describeCalls int
+	client := &fakeDataTableClient{
+		listAttributes: func(_ context.Context, input *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			if input.NextToken == nil {
+				return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{
+					{Name: aws.String("z_removed"), ValueType: connecttypes.DataTableAttributeValueTypeText},
+					{Name: aws.String("primary"), ValueType: connecttypes.DataTableAttributeValueTypeText, Primary: true},
+				}, NextToken: aws.String("next")}, nil
+			}
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{
+				{Name: aws.String("a_unconfigured"), ValueType: connecttypes.DataTableAttributeValueTypeText},
+			}}, nil
+		},
+		describeValues: func(_ context.Context, input *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			describeCalls++
+			if aws.ToString(input.InstanceId) != dataTableTestInstanceID || aws.ToString(input.DataTableId) != dataTableTestID {
+				t.Fatalf("unexpected DEFAULT batch identity: %#v", input)
+			}
+			wantNames := []string{"a_unconfigured", "z_removed"}
+			if len(input.Values) != len(wantNames) {
+				t.Fatalf("expected every remote non-primary attribute, got %#v", input.Values)
+			}
+			output := &awsconnect.BatchDescribeDataTableValueOutput{}
+			for index, identifier := range input.Values {
+				name := aws.ToString(identifier.AttributeName)
+				if name != wantNames[index] {
+					t.Fatalf("expected sorted DEFAULT request names %v, got %#v", wantNames, input.Values)
+				}
+				if identifier.PrimaryValues == nil || len(identifier.PrimaryValues) != 0 {
+					t.Fatalf("expected explicit empty primary values for %q, got %#v", name, identifier.PrimaryValues)
+				}
+				output.Successful = append(output.Successful, connecttypes.BatchDescribeDataTableValueSuccessResult{
+					AttributeId: aws.String("attribute-" + name), AttributeName: aws.String(name),
+					LockVersion: lockVersions[name], PrimaryValues: []connecttypes.PrimaryValueResponse{},
+					RecordId: aws.String("11111111-1111-4111-8111-111111111111"), Value: aws.String("value-" + name),
+				})
+			}
+			return output, nil
+		},
+	}
+	remote, err := (&dataTableResource{client: client}).readRemoteSnapshot(context.Background(), dataTableKey{instanceID: dataTableTestInstanceID, dataTableID: dataTableTestID})
+	if err != nil {
+		t.Fatalf("unexpected data-table snapshot error: %v", err)
+	}
+	if describeCalls != 1 || len(remote.defaultValues) != 2 {
+		t.Fatalf("expected one complete DEFAULT batch and two values, calls=%d defaults=%#v", describeCalls, remote.defaultValues)
+	}
+	for name, lockVersion := range lockVersions {
+		value, ok := remote.defaultValues[name]
+		if !ok || value.value != "value-"+name || value.lockVersion != lockVersion {
+			t.Errorf("expected value and lock mapped by attribute %q, got %#v", name, value)
+		}
+	}
+}
+
+func TestDataTableReadIgnoresOnlyExactMissingDefaultFailure(t *testing.T) {
+	describeCalls := 0
+	client := &fakeDataTableClient{
+		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("unset"), ValueType: connecttypes.DataTableAttributeValueTypeText}}}, nil
+		},
+		describeValues: func(_ context.Context, input *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			describeCalls++
+			if len(input.Values) != 1 || aws.ToString(input.Values[0].AttributeName) != "unset" {
+				t.Fatalf("unexpected DEFAULT request %#v", input.Values)
+			}
+			return &awsconnect.BatchDescribeDataTableValueOutput{Failed: []connecttypes.BatchDescribeDataTableValueFailureResult{{
+				AttributeName: aws.String("unset"), Message: aws.String("Value not found."), PrimaryValues: []connecttypes.PrimaryValue{},
+			}}}, nil
+		},
+	}
+	remote, err := (&dataTableResource{client: client}).readRemoteSnapshot(context.Background(), dataTableKey{instanceID: dataTableTestInstanceID, dataTableID: dataTableTestID})
+	if err != nil || describeCalls != 1 || len(remote.defaultValues) != 0 {
+		t.Fatalf("expected exact missing DEFAULT result to produce an empty default map, got %#v err=%v", remote.defaultValues, err)
+	}
+}
+
+func TestDataTableReadSkipsDefaultBatchWithoutNonPrimaryAttributes(t *testing.T) {
+	describeCalls := 0
+	client := &fakeDataTableClient{
+		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("key"), ValueType: connecttypes.DataTableAttributeValueTypeText, Primary: true}}}, nil
+		},
+		describeValues: func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			describeCalls++
+			return &awsconnect.BatchDescribeDataTableValueOutput{}, nil
+		},
+	}
+	remote, err := (&dataTableResource{client: client}).readRemoteSnapshot(context.Background(), dataTableKey{instanceID: dataTableTestInstanceID, dataTableID: dataTableTestID})
+	if err != nil || describeCalls != 0 || len(remote.defaultValues) != 0 {
+		t.Fatalf("expected no DEFAULT API call for primary-only table, calls=%d defaults=%#v err=%v", describeCalls, remote.defaultValues, err)
+	}
+}
+
+func TestDataTableReadRejectsInvalidDefaultBatchResponses(t *testing.T) {
+	success := func(name string, primaryValues []connecttypes.PrimaryValueResponse) connecttypes.BatchDescribeDataTableValueSuccessResult {
+		return connecttypes.BatchDescribeDataTableValueSuccessResult{
+			AttributeId: aws.String("attribute-" + name), AttributeName: aws.String(name),
+			LockVersion:   &connecttypes.DataTableLockVersion{Value: aws.String("lock")},
+			PrimaryValues: primaryValues, RecordId: aws.String("11111111-1111-4111-8111-111111111111"), Value: aws.String("value"),
+		}
+	}
+	failure := func(name, message string, primaryValues []connecttypes.PrimaryValue) connecttypes.BatchDescribeDataTableValueFailureResult {
+		return connecttypes.BatchDescribeDataTableValueFailureResult{AttributeName: aws.String(name), Message: aws.String(message), PrimaryValues: primaryValues}
+	}
+	tests := []struct {
+		name   string
+		output *awsconnect.BatchDescribeDataTableValueOutput
+	}{
+		{name: "nil output"},
+		{name: "incomplete results", output: &awsconnect.BatchDescribeDataTableValueOutput{Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{success("a", nil)}}},
+		{name: "duplicate across success and failure", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{success("a", nil)},
+			Failed:     []connecttypes.BatchDescribeDataTableValueFailureResult{failure("a", "Value not found.", nil), failure("b", "Value not found.", nil)},
+		}},
+		{name: "unrequested result", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{success("a", nil), success("unexpected", nil)},
+		}},
+		{name: "missing result name", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{{Value: aws.String("value")}},
+			Failed:     []connecttypes.BatchDescribeDataTableValueFailureResult{failure("b", "Value not found.", nil)},
+		}},
+		{name: "missing success value", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{{
+				AttributeId: aws.String("attribute-a"), AttributeName: aws.String("a"),
+				LockVersion:   &connecttypes.DataTableLockVersion{Value: aws.String("lock")},
+				PrimaryValues: []connecttypes.PrimaryValueResponse{}, RecordId: aws.String("11111111-1111-4111-8111-111111111111"),
+			}},
+			Failed: []connecttypes.BatchDescribeDataTableValueFailureResult{failure("b", "Value not found.", nil)},
+		}},
+		{name: "missing success lock version", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{{
+				AttributeId: aws.String("attribute-a"), AttributeName: aws.String("a"), Value: aws.String("value"),
+				PrimaryValues: []connecttypes.PrimaryValueResponse{}, RecordId: aws.String("11111111-1111-4111-8111-111111111111"),
+			}},
+			Failed: []connecttypes.BatchDescribeDataTableValueFailureResult{failure("b", "Value not found.", nil)},
+		}},
+		{name: "missing failure message", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{success("a", nil)},
+			Failed:     []connecttypes.BatchDescribeDataTableValueFailureResult{{AttributeName: aws.String("b"), PrimaryValues: []connecttypes.PrimaryValue{}}},
+		}},
+		{name: "nonempty success primary values", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{success("a", []connecttypes.PrimaryValueResponse{{AttributeName: aws.String("key"), Value: aws.String("x")}})},
+			Failed:     []connecttypes.BatchDescribeDataTableValueFailureResult{failure("b", "Value not found.", nil)},
+		}},
+		{name: "nonempty failure primary values", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{success("a", nil)},
+			Failed:     []connecttypes.BatchDescribeDataTableValueFailureResult{failure("b", "Value not found.", []connecttypes.PrimaryValue{{AttributeName: aws.String("key"), Value: aws.String("x")}})},
+		}},
+		{name: "duplicate successes", output: &awsconnect.BatchDescribeDataTableValueOutput{
+			Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{success("a", nil), success("a", nil)},
+			Failed:     []connecttypes.BatchDescribeDataTableValueFailureResult{failure("b", "Value not found.", nil)},
+		}},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &fakeDataTableClient{
+				listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+					return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{
+						{Name: aws.String("a"), ValueType: connecttypes.DataTableAttributeValueTypeText},
+						{Name: aws.String("b"), ValueType: connecttypes.DataTableAttributeValueTypeText},
+					}}, nil
+				},
+				describeValues: func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+					return testCase.output, nil
+				},
+			}
+			_, err := (&dataTableResource{client: client}).readRemoteSnapshot(context.Background(), dataTableKey{instanceID: dataTableTestInstanceID, dataTableID: dataTableTestID})
+			if err == nil {
+				t.Fatal("expected malformed or incomplete DEFAULT response to fail")
+			}
+		})
+	}
+}
+
+func TestDataTableReadAbortsOnUnexpectedDefaultFailure(t *testing.T) {
+	var requestedNames []string
+	client := &fakeDataTableClient{
+		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{
+				{Name: aws.String("unset"), ValueType: connecttypes.DataTableAttributeValueTypeText},
+				{Name: aws.String("value"), ValueType: connecttypes.DataTableAttributeValueTypeText},
+			}}, nil
+		},
+		describeValues: func(_ context.Context, input *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			for _, identifier := range input.Values {
+				requestedNames = append(requestedNames, aws.ToString(identifier.AttributeName))
+			}
+			return &awsconnect.BatchDescribeDataTableValueOutput{Failed: []connecttypes.BatchDescribeDataTableValueFailureResult{
+				dataTableBatchMissing("unset"),
+				{AttributeName: aws.String("value"), Message: aws.String("Access denied"), PrimaryValues: []connecttypes.PrimaryValue{}},
+			}}, nil
+		},
+	}
+	_, err := (&dataTableResource{client: client}).readRemoteSnapshot(context.Background(), dataTableKey{instanceID: dataTableTestInstanceID, dataTableID: dataTableTestID})
+	if err == nil || !strings.Contains(err.Error(), "Access denied") || !reflect.DeepEqual(requestedNames, []string{"unset", "value"}) {
+		t.Fatalf("expected fatal failure to abort mixed DEFAULT refresh and retain its cause, requests=%v err=%v", requestedNames, err)
+	}
+}
+
+func TestDataTableReadBatchDescribeAPIFailurePreservesCauseAndPriorDefaults(t *testing.T) {
+	apiFailure := errors.New("AccessDeniedException: synthetic access denied")
+	client := &fakeDataTableClient{
+		listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
+			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{
+				Name: aws.String("value"), ValueType: connecttypes.DataTableAttributeValueTypeText,
+			}}}, nil
+		},
+		describeValues: func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			return nil, apiFailure
+		},
+	}
+	prior := sampleDataTableModel(
+		map[string]attr.Value{"value": dataTableAttributeValue(false, types.StringNull())},
+		map[string]attr.Value{"value": types.StringValue("preserved")},
+	)
+	state := dataTableState(t, prior)
+	response := &resource.ReadResponse{State: state}
+	implementation := &dataTableResource{client: client, coordinator: newDataTableCoordinator()}
+	implementation.Read(context.Background(), resource.ReadRequest{State: state}, response)
+	if !response.Diagnostics.HasError() || !strings.Contains(response.Diagnostics.Errors()[0].Detail(), apiFailure.Error()) {
+		t.Fatalf("expected Read diagnostic to retain API cause %q, got %v", apiFailure, response.Diagnostics)
+	}
+	var retained dataTableModel
+	stateDiagnostics := response.State.Get(context.Background(), &retained)
+	if stateDiagnostics.HasError() || !reflect.DeepEqual(retained.DefaultValues, prior.DefaultValues) {
+		t.Fatalf("failed DEFAULT refresh must retain prior state, got %#v want %#v diagnostics=%v", retained.DefaultValues, prior.DefaultValues, response.Diagnostics)
 	}
 }
 
@@ -672,13 +921,11 @@ func TestDataTableUpdateSkipsUnchangedMetadataAndDoesNotRecreateExistingDefault(
 			}
 			return &awsconnect.ListDataTableAttributesOutput{Attributes: []connecttypes.DataTableAttribute{{Name: aws.String("DisasterEnabled"), ValueType: connecttypes.DataTableAttributeValueTypeBoolean}}}, nil
 		},
-		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			if input.MaxResults == nil || aws.ToInt32(input.MaxResults) != maxDataTableValuesPerPage || len(input.RecordIds) != 0 {
-				t.Fatalf("unexpected DEFAULT value list request: %#v", input)
+		describeValues: func(_ context.Context, input *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			if len(input.Values) != 1 || aws.ToString(input.Values[0].AttributeName) != "DisasterEnabled" || input.Values[0].PrimaryValues == nil || len(input.Values[0].PrimaryValues) != 0 {
+				t.Fatalf("unexpected DEFAULT batch request: %#v", input)
 			}
-			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{{
-				AttributeName: aws.String("DisasterEnabled"), RecordId: aws.String("11111111-1111-4111-8111-111111111111"), Value: aws.String("false"),
-			}}}, nil
+			return &awsconnect.BatchDescribeDataTableValueOutput{Successful: []connecttypes.BatchDescribeDataTableValueSuccessResult{dataTableBatchSuccess("DisasterEnabled", "false", nil)}}, nil
 		},
 		createValues: func(context.Context, *awsconnect.BatchCreateDataTableValueInput) (*awsconnect.BatchCreateDataTableValueOutput, error) {
 			createCalls++
@@ -706,7 +953,7 @@ func TestDataTableUpdateSkipsUnchangedMetadataAndDoesNotRecreateExistingDefault(
 	}
 }
 
-func TestDataTableReadRejectsRepeatedPaginationTokensIndependently(t *testing.T) {
+func TestDataTableReadRejectsRepeatedAttributePaginationTokens(t *testing.T) {
 	t.Run("attributes", func(t *testing.T) {
 		attributeCalls := 0
 		client := &fakeDataTableClient{listAttributes: func(context.Context, *awsconnect.ListDataTableAttributesInput) (*awsconnect.ListDataTableAttributesOutput, error) {
@@ -716,18 +963,6 @@ func TestDataTableReadRejectsRepeatedPaginationTokensIndependently(t *testing.T)
 		_, err := (&dataTableResource{client: client}).readRemoteSnapshot(context.Background(), dataTableKey{instanceID: "i", dataTableID: "t"})
 		if err == nil || !strings.Contains(err.Error(), "repeated data-table attribute pagination token") || attributeCalls != 2 {
 			t.Fatalf("expected bounded attribute pagination cycle error, calls=%d err=%v", attributeCalls, err)
-		}
-	})
-
-	t.Run("values", func(t *testing.T) {
-		valueCalls := 0
-		client := &fakeDataTableClient{listValues: func(context.Context, *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			valueCalls++
-			return &awsconnect.ListDataTableValuesOutput{NextToken: aws.String("repeated-value-token")}, nil
-		}}
-		_, err := (&dataTableResource{client: client}).readRemoteSnapshot(context.Background(), dataTableKey{instanceID: "i", dataTableID: "t"})
-		if err == nil || !strings.Contains(err.Error(), "repeated data-table value pagination token") || valueCalls != 2 {
-			t.Fatalf("expected bounded value pagination cycle error, calls=%d err=%v", valueCalls, err)
 		}
 	})
 }
@@ -857,20 +1092,34 @@ func TestDataTableUpdateReconcilesFullLifecycleWithFreshLocks(t *testing.T) {
 				}}, nil
 			}
 		},
-		listValues: func(_ context.Context, input *awsconnect.ListDataTableValuesInput) (*awsconnect.ListDataTableValuesOutput, error) {
-			if len(input.RecordIds) != 0 {
-				t.Fatalf("expected unfiltered DEFAULT value list request, got %#v", input.RecordIds)
+		describeValues: func(_ context.Context, input *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error) {
+			output := &awsconnect.BatchDescribeDataTableValueOutput{}
+			for _, identifier := range input.Values {
+				name := aws.ToString(identifier.AttributeName)
+				switch name {
+				case "change":
+					value := "old"
+					if describeCount >= 3 {
+						value = "new"
+					}
+					output.Successful = append(output.Successful, dataTableBatchSuccess(name, value, updateLock))
+				case "remove":
+					if describeCount < 3 {
+						output.Successful = append(output.Successful, dataTableBatchSuccess(name, "old", deleteLock))
+					} else {
+						output.Failed = append(output.Failed, dataTableBatchMissing(name))
+					}
+				case "add":
+					if describeCount >= 3 {
+						output.Successful = append(output.Successful, dataTableBatchSuccess(name, "new", nil))
+					} else {
+						output.Failed = append(output.Failed, dataTableBatchMissing(name))
+					}
+				default:
+					output.Failed = append(output.Failed, dataTableBatchMissing(name))
+				}
 			}
-			if describeCount < 3 {
-				return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
-					{AttributeName: aws.String("change"), Value: aws.String("old"), LockVersion: updateLock},
-					{AttributeName: aws.String("remove"), RecordId: aws.String("arbitrary-record-id"), Value: aws.String("old"), LockVersion: deleteLock},
-				}}, nil
-			}
-			return &awsconnect.ListDataTableValuesOutput{Values: []connecttypes.DataTableValueSummary{
-				{AttributeName: aws.String("add"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("new")},
-				{AttributeName: aws.String("change"), RecordId: aws.String(defaultDataTableRecordID), Value: aws.String("new")},
-			}}, nil
+			return output, nil
 		},
 		updateMetadata: func(_ context.Context, input *awsconnect.UpdateDataTableMetadataInput) (*awsconnect.UpdateDataTableMetadataOutput, error) {
 			operations = append(operations, "metadata")
