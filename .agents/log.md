@@ -4,6 +4,8 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 
 ## 2026-10-13 — Approved AWS tagging conventions
 
+- The owner requested a PR. Implementation commit `a6f11ae` was pushed on `feat/aws-style-tagging`; GitHub connector PR creation returned HTTP 403 `Resource not accessible by integration`. No PR, merge, or release resulted. The owner prohibits `gh`; fallback requires an explicit exception or repaired connector permissions.
+
 - The owner approved provider `default_tags` and `ignore_tags` blocks plus resource `tags` and computed `tags_all`, with resource values overriding defaults and authoritative reconciliation of non-ignored user tags. Initial scope is the data-table resource; association edges, records, and hours overrides do not tag their parents.
 - Preserve explicit tags matching defaults across refresh; import must discover remote tags without mutations and subsequent planning must compare them against configuration. New unknown provider tagging values are rejected before AWS client loading; resource unknown values defer planning.
 - CloudFormation documents data-table `Tags` updates without interruption, while the Connect tagging support and IAM resource lists omit data tables. Direct tag mutation implementation and mocked checks must not be presented as live AWS evidence. No AWS calls are authorized by this task.
