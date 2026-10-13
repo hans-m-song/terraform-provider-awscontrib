@@ -40,6 +40,8 @@ type fakeDataTableClient struct {
 	updateValues    func(context.Context, *awsconnect.BatchUpdateDataTableValueInput) (*awsconnect.BatchUpdateDataTableValueOutput, error)
 	deleteValues    func(context.Context, *awsconnect.BatchDeleteDataTableValueInput) (*awsconnect.BatchDeleteDataTableValueOutput, error)
 	describeValues  func(context.Context, *awsconnect.BatchDescribeDataTableValueInput) (*awsconnect.BatchDescribeDataTableValueOutput, error)
+	tagResource     func(context.Context, *awsconnect.TagResourceInput) (*awsconnect.TagResourceOutput, error)
+	untagResource   func(context.Context, *awsconnect.UntagResourceInput) (*awsconnect.UntagResourceOutput, error)
 }
 
 func (f *fakeDataTableClient) CreateDataTable(ctx context.Context, input *awsconnect.CreateDataTableInput, _ ...func(*awsconnect.Options)) (*awsconnect.CreateDataTableOutput, error) {
@@ -126,6 +128,20 @@ func (f *fakeDataTableClient) BatchDescribeDataTableValue(ctx context.Context, i
 	return f.describeValues(ctx, input)
 }
 
+func (f *fakeDataTableClient) TagResource(ctx context.Context, input *awsconnect.TagResourceInput, _ ...func(*awsconnect.Options)) (*awsconnect.TagResourceOutput, error) {
+	if f.tagResource == nil {
+		return &awsconnect.TagResourceOutput{}, nil
+	}
+	return f.tagResource(ctx, input)
+}
+
+func (f *fakeDataTableClient) UntagResource(ctx context.Context, input *awsconnect.UntagResourceInput, _ ...func(*awsconnect.Options)) (*awsconnect.UntagResourceOutput, error) {
+	if f.untagResource == nil {
+		return &awsconnect.UntagResourceOutput{}, nil
+	}
+	return f.untagResource(ctx, input)
+}
+
 func dataTableBatchSuccess(name, value string, lockVersion *connecttypes.DataTableLockVersion) connecttypes.BatchDescribeDataTableValueSuccessResult {
 	if lockVersion == nil {
 		lockVersion = &connecttypes.DataTableLockVersion{Value: aws.String("lock-" + name)}
@@ -172,6 +188,14 @@ func TestDataTableMetadataSchemaAndFactory(t *testing.T) {
 	defaults, ok := response.Schema.Attributes["default_values"].(resourceschema.MapAttribute)
 	if !ok || !defaults.Optional || !defaults.ElementType.Equal(types.StringType) {
 		t.Fatalf("expected optional string DEFAULT map, got %#v", response.Schema.Attributes["default_values"])
+	}
+	tags, ok := response.Schema.Attributes["tags"].(resourceschema.MapAttribute)
+	if !ok || !tags.Optional || tags.Computed || !tags.ElementType.Equal(types.StringType) {
+		t.Fatalf("expected optional-only string tag map, got %#v", response.Schema.Attributes["tags"])
+	}
+	tagsAll, ok := response.Schema.Attributes["tags_all"].(resourceschema.MapAttribute)
+	if !ok || !tagsAll.Computed || tagsAll.Optional || !tagsAll.ElementType.Equal(types.StringType) {
+		t.Fatalf("expected computed string tags_all map, got %#v", response.Schema.Attributes["tags_all"])
 	}
 	if diagnostics := response.Schema.ValidateImplementation(context.Background()); diagnostics.HasError() {
 		t.Fatalf("data-table schema must pass Framework implementation validation used by schema export: %v", diagnostics)
@@ -1375,7 +1399,7 @@ func sampleDataTableModel(attributes map[string]attr.Value, defaults map[string]
 	return dataTableModel{
 		InstanceID: types.StringValue(dataTableTestInstanceID), ID: types.StringValue(dataTableTestID), ARN: types.StringValue("arn:test"), Name: types.StringValue("table"),
 		Description: types.StringNull(), TimeZone: types.StringValue("Australia/Brisbane"), ValueLockLevel: types.StringValue("VALUE"), Status: types.StringValue("PUBLISHED"),
-		Attributes: attributeMap, DefaultValues: defaultMap,
+		Attributes: attributeMap, DefaultValues: defaultMap, Tags: types.MapNull(types.StringType), TagsAll: types.MapNull(types.StringType),
 	}
 }
 

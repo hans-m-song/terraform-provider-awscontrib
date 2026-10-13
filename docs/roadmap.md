@@ -12,6 +12,23 @@ Task and milestone IDs are immutable. Removed IDs are not reused.
 | Blocked | A recorded external decision or dependency prevents progress. |
 | Complete | Acceptance criteria and verification gates have passed. |
 
+## M15 — AWS provider tagging conventions
+
+### M15-T01 — Provider tag configuration and data-table lifecycle
+
+- Status: Complete locally; fixture-free verified, prepared for PR on `feat/aws-style-tagging`, unreleased.
+- Goal: implement the owner-approved HashiCorp AWS provider tagging conventions.
+- Scope: provider `default_tags` and `ignore_tags` blocks; data-table resource `tags` and computed `tags_all`; create, in-place update, drift, import, examples, and generated references.
+- Constraints: preserve existing table/default/record behavior; no tagging of association edges, records, or parent hours resources; no AWS calls, credentials, publication, or upstream-scale generators.
+- Acceptance criteria: resource tags override defaults; ignored and AWS system tags are preserved; refresh discovers non-ignored drift; import reconstructs tags; tag removal and default changes reconcile in place; identical explicit/default values do not cause perpetual diffs; unknown plan values defer safely.
+- Roles: main agent, explorer, executor_light, tester.
+- Dependencies: existing data-table resource and configured shared Connect client.
+- Verification gates: primary-source API evidence, mocked lifecycle and Framework tests, full tests, focused race tests, formatting, lint, build, deterministic documentation generation, diff review.
+- Blockers: live service behavior remains unverified. CloudFormation documents mutable tags, while Connect's tagging/IAM resource lists omit data tables; TagResource/UntagResource integration is fixture-free verified.
+- Parallel boundaries: provider/configuration and service lifecycle have separate ownership; independent testing follows integration; only the main agent edits continuity files.
+
+Verification on 2026-10-13: full mocked/Framework tests, focused race suites, formatting, build, lint with zero issues, two identical generated-reference runs, independent lifecycle review, and whitespace checks passed. Default removal with omitted resource tags and known empty `tags_all` is covered. No AWS account calls were made.
+
 ## M14 — Data-table DEFAULT apply consistency
 
 ### M14-T03 — Read defaults by attribute and empty primary values
@@ -438,7 +455,7 @@ Status: Complete.
 - Roles: architect, explorer, main agent.
 - Dependencies: `M0`.
 - Verification gates: current AWS API and pinned SDK audit plus the owner's 2026-08-19 CLI observations recorded in the architecture log.
-- Blockers: none for the initial schema. `status` exposes only the verified `PUBLISHED` value and is replacement-only; tags and attribute validation are deferred because their update/removal behavior is not representable reliably through the pinned SDK. Changing an attribute from primary to non-primary requires table replacement because the SDK serializer cannot send `Primary:false`.
+- Blockers: none for the initial schema. `status` exposes only the verified `PUBLISHED` value and is replacement-only; attribute validation remains deferred because its update/removal behavior is not representable reliably through the pinned SDK; initial tag deferral is superseded by M15. Changing an attribute from primary to non-primary requires table replacement because the SDK serializer cannot send `Primary:false`.
 - Parallel boundaries: record implementation waits for this contract.
 
 ### M6-T02 — Implement table, attributes, and DEFAULT lifecycle
