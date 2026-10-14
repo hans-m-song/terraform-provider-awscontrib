@@ -6,6 +6,11 @@ resource "awscontrib_connect_data_table" "example" {
   value_lock_level = "VALUE"
   status           = "PUBLISHED"
 
+  tags = {
+    Environment = "staging"
+    Purpose     = "routing"
+  }
+
   attributes = {
     customer_id = {
       value_type = "TEXT"

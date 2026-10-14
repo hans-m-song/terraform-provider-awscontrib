@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconnect "github.com/aws/aws-sdk-go-v2/service/connect"
 	connecttypes "github.com/aws/aws-sdk-go-v2/service/connect/types"
+	"github.com/hans-m-song/terraform-provider-awscontrib/internal/conns"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -42,11 +43,14 @@ type dataTableClient interface {
 	BatchUpdateDataTableValue(context.Context, *awsconnect.BatchUpdateDataTableValueInput, ...func(*awsconnect.Options)) (*awsconnect.BatchUpdateDataTableValueOutput, error)
 	BatchDeleteDataTableValue(context.Context, *awsconnect.BatchDeleteDataTableValueInput, ...func(*awsconnect.Options)) (*awsconnect.BatchDeleteDataTableValueOutput, error)
 	BatchDescribeDataTableValue(context.Context, *awsconnect.BatchDescribeDataTableValueInput, ...func(*awsconnect.Options)) (*awsconnect.BatchDescribeDataTableValueOutput, error)
+	TagResource(context.Context, *awsconnect.TagResourceInput, ...func(*awsconnect.Options)) (*awsconnect.TagResourceOutput, error)
+	UntagResource(context.Context, *awsconnect.UntagResourceInput, ...func(*awsconnect.Options)) (*awsconnect.UntagResourceOutput, error)
 }
 
 type dataTableResource struct {
 	client      dataTableClient
 	coordinator *dataTableCoordinator
+	tagConfig   conns.TagConfig
 }
 
 type dataTableModel struct {
@@ -60,6 +64,8 @@ type dataTableModel struct {
 	Status         types.String `tfsdk:"status"`
 	Attributes     types.Map    `tfsdk:"attributes"`
 	DefaultValues  types.Map    `tfsdk:"default_values"`
+	Tags           types.Map    `tfsdk:"tags"`
+	TagsAll        types.Map    `tfsdk:"tags_all"`
 }
 
 type dataTableAttributeModel struct {
@@ -106,7 +112,7 @@ func (r *dataTableResource) Metadata(_ context.Context, req resource.MetadataReq
 
 func (r *dataTableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = resourceschema.Schema{
-		MarkdownDescription: "Manages Amazon Connect data-table metadata, the complete set of attributes represented by this resource, and explicit DEFAULT values. Mutations for the same instance and table are serialized within one provider process. Attribute validation rules and tags are not currently represented.",
+		MarkdownDescription: "Manages Amazon Connect data-table metadata, tags, the complete set of attributes represented by this resource, and explicit DEFAULT values. Mutations for the same instance and table are serialized within one provider process. Attribute validation rules are not currently represented.",
 		Attributes: map[string]resourceschema.Attribute{
 			"instance_id": resourceschema.StringAttribute{
 				MarkdownDescription: "Amazon Connect instance identifier.",
@@ -172,6 +178,16 @@ func (r *dataTableResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Optional:            true,
 				ElementType:         types.StringType,
 			},
+			"tags": resourceschema.MapAttribute{
+				MarkdownDescription: "Resource-specific tags. Resource tags override provider default tags. Keys ignored by provider ignore_tags and AWS system tags are not managed.",
+				Optional:            true,
+				ElementType:         types.StringType,
+			},
+			"tags_all": resourceschema.MapAttribute{
+				MarkdownDescription: "All non-system, non-ignored tags applied to the data table, including provider default tags.",
+				Computed:            true,
+				ElementType:         types.StringType,
+			},
 		},
 	}
 }
@@ -190,16 +206,40 @@ func (r *dataTableResource) Configure(_ context.Context, req resource.ConfigureR
 		return
 	}
 	r.client = factory.Connect()
+	if configured, ok := req.ProviderData.(*conns.Client); ok {
+		r.tagConfig = cloneDataTableTagConfig(configured.TagConfig)
+	}
 }
 
 func (r *dataTableResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+	var planned dataTableModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &planned)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	effectiveTags, tagsKnown, tagDiagnostics := dataTableEffectiveTagsFromTerraform(planned.Tags, r.tagConfig)
+	resp.Diagnostics.Append(tagDiagnostics...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if tagsKnown {
+		planned.TagsAll = dataTableStringMapValue(effectiveTags)
+	} else {
+		planned.TagsAll = types.MapUnknown(types.StringType)
+	}
+	resp.Plan = req.Plan
+	resp.Diagnostics.Append(resp.Plan.Set(ctx, &planned)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if req.State.Raw.IsNull() {
 		return
 	}
 	var prior dataTableModel
-	var planned dataTableModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &planned)...)
 	if resp.Diagnostics.HasError() || prior.Attributes.IsNull() || prior.Attributes.IsUnknown() || planned.Attributes.IsNull() || planned.Attributes.IsUnknown() {
 		return
 	}
@@ -236,9 +276,16 @@ func (r *dataTableResource) Create(ctx context.Context, req resource.CreateReque
 	}
 	configuration, diagnostics := dataTableConfigurationFromTerraform(ctx, planned, false)
 	resp.Diagnostics.Append(diagnostics...)
+	tags, tagsKnown, tagDiagnostics := dataTableEffectiveTagsFromTerraform(planned.Tags, r.tagConfig)
+	resp.Diagnostics.Append(tagDiagnostics...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	if !tagsKnown {
+		resp.Diagnostics.AddAttributeError(path.Root("tags"), "Unknown Data Table Tags", "tags must be known before an Amazon Connect request can be sent")
+		return
+	}
+	planned.TagsAll = dataTableStringMapValue(tags)
 	output, err := r.client.CreateDataTable(ctx, &awsconnect.CreateDataTableInput{
 		InstanceId:     aws.String(configuration.instanceID),
 		Name:           aws.String(configuration.name),
@@ -246,6 +293,7 @@ func (r *dataTableResource) Create(ctx context.Context, req resource.CreateReque
 		TimeZone:       aws.String(configuration.timeZone),
 		ValueLockLevel: connecttypes.DataTableLockLevel(configuration.valueLockLevel),
 		Status:         connecttypes.DataTableStatus(configuration.status),
+		Tags:           tags,
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Create Data Table", fmt.Sprintf("Could not create data table %q: %s", configuration.name, err))
@@ -277,6 +325,8 @@ func (r *dataTableResource) Create(ctx context.Context, req resource.CreateReque
 		}
 		refreshed.InstanceID = planned.InstanceID
 		refreshed.DefaultValues = planned.DefaultValues
+		refreshed.Tags = planned.Tags
+		refreshed.TagsAll = dataTableStringMapValue(tags)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &refreshed)...)
 		return nil
 	})
@@ -302,6 +352,7 @@ func (r *dataTableResource) Read(ctx context.Context, req resource.ReadRequest, 
 			return err
 		}
 		refreshed.InstanceID = state.InstanceID
+		refreshed.Tags = dataTableTagsForRead(state.Tags, mapStringValues(refreshed.TagsAll), r.tagConfig)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &refreshed)...)
 		return nil
 	})
@@ -330,9 +381,15 @@ func (r *dataTableResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 	configuration, diagnostics := dataTableConfigurationFromTerraform(ctx, planned, true)
 	resp.Diagnostics.Append(diagnostics...)
+	tags, tagsKnown, tagDiagnostics := dataTableEffectiveTagsFromTerraform(planned.Tags, r.tagConfig)
+	resp.Diagnostics.Append(tagDiagnostics...)
 	key, identityDiagnostics := dataTableIdentity(planned)
 	resp.Diagnostics.Append(identityDiagnostics...)
 	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !tagsKnown {
+		resp.Diagnostics.AddAttributeError(path.Root("tags"), "Unknown Data Table Tags", "tags must be known before an Amazon Connect request can be sent")
 		return
 	}
 	err := r.coordinator.withLock(key, func() error {
@@ -367,12 +424,17 @@ func (r *dataTableResource) Update(ctx context.Context, req resource.UpdateReque
 		if err := r.deleteRemovedAttributes(ctx, key, remote.attributes, configuration.attributes); err != nil {
 			return err
 		}
+		if err := reconcileDataTableTags(ctx, r.client, aws.ToString(remote.table.Arn), remote.table.Tags, tags, r.tagConfig); err != nil {
+			return err
+		}
 		refreshed, err := r.readRemote(ctx, key)
 		if err != nil {
 			return err
 		}
 		refreshed.InstanceID = planned.InstanceID
 		refreshed.DefaultValues = planned.DefaultValues
+		refreshed.Tags = planned.Tags
+		refreshed.TagsAll = dataTableStringMapValue(tags)
 		resp.Diagnostics.Append(resp.State.Set(ctx, &refreshed)...)
 		return nil
 	})
@@ -789,6 +851,8 @@ func (r *dataTableResource) readRemote(ctx context.Context, key dataTableKey) (d
 		Status:         types.StringValue(string(remote.table.Status)),
 		Attributes:     attributes,
 		DefaultValues:  defaultValues,
+		Tags:           dataTableTagsForRead(types.MapNull(types.StringType), remote.table.Tags, r.tagConfig),
+		TagsAll:        dataTableStringMapValue(filterDataTableTags(remote.table.Tags, r.tagConfig)),
 	}, nil
 }
 

@@ -2,6 +2,17 @@
 
 Only the main agent edits this file. Record verified decisions, rejected approaches, and reusable lessons. Do not record credentials, account identifiers, or personal information.
 
+## 2026-10-13 — Approved AWS tagging conventions
+
+- The owner requested a PR. Implementation commit `a6f11ae` was pushed on `feat/aws-style-tagging`; GitHub connector PR creation returned HTTP 403 `Resource not accessible by integration`. No PR, merge, or release resulted. The owner prohibits `gh`; fallback requires an explicit exception or repaired connector permissions.
+
+- The owner approved provider `default_tags` and `ignore_tags` blocks plus resource `tags` and computed `tags_all`, with resource values overriding defaults and authoritative reconciliation of non-ignored user tags. Initial scope is the data-table resource; association edges, records, and hours overrides do not tag their parents.
+- Preserve explicit tags matching defaults across refresh; import must discover remote tags without mutations and subsequent planning must compare them against configuration. New unknown provider tagging values are rejected before AWS client loading; resource unknown values defer planning.
+- CloudFormation documents data-table `Tags` updates without interruption, while the Connect tagging support and IAM resource lists omit data tables. Direct tag mutation implementation and mocked checks must not be presented as live AWS evidence. No AWS calls are authorized by this task.
+- Primary references: https://github.com/hashicorp/terraform-provider-aws/blob/main/docs/resource-tagging.md ; https://raw.githubusercontent.com/hashicorp/terraform-provider-aws/main/internal/tags/framework.go ; https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-connect-datatable.html ; https://docs.aws.amazon.com/connect/latest/APIReference/API_TagResource.html ; https://docs.aws.amazon.com/connect/latest/APIReference/API_UntagResource.html
+- Implemented explicit provider blocks and a copied connection configuration, optional resource `tags`, computed `tags_all`, and ARN-based untag-then-tag reconciliation under the existing table lock. Reads use `DescribeDataTable.Tags`, avoiding another tag listing request. Successful applies preserve configured null/empty tags; ordinary refresh remains authoritative. Empty-string tag values require map-presence checks, covered by regressions.
+- Formatting, full unit/Framework tests, build, lint with zero issues using a writable cache, two identical generated-reference runs, independent lifecycle review, provider/connections/Connect race suites, and whitespace checks passed. The first lint attempt encountered default-cache write restrictions and a transient missing test import; the stable rerun passed. No dependencies or record/association/hour lifecycle changes were introduced. Final review added default-removal coverage proving omitted `tags` stays null and `tags_all` becomes known empty; invalid defaults now identify provider configuration rather than resource tags. M15-T01 is complete locally and remains uncommitted and unreleased.
+
 ## 2026-10-09 — Data-table DEFAULT state consistency
 
 - M14-T03 is complete locally. Owner-run BatchDescribeDataTableValue with explicit empty PrimaryValues retrieves an existing default. Another owner-run command for an existing non-primary attribute without a default returned empty Successful and Failed Message `Value not found.`.

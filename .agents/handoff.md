@@ -2,9 +2,15 @@
 
 ## Updated
 
-2026-10-09, Australia/Brisbane.
+2026-10-13, Australia/Brisbane.
 
 ## Latest review
+
+- PR preparation on 2026-10-13: tagging implementation committed as `a6f11ae` and pushed to `feat/aws-style-tagging`. GitHub connector PR creation returned HTTP 403 `Resource not accessible by integration`; no PR was created. Prepared body: `/Volumes/Data/tmp/awscontrib-tagging-pr.md`. Next action: restore connector PR permissions or obtain an explicit exception to the owner's prohibition on `gh`, then open against `main`. Do not merge or release.
+
+- M15-T01 implements the owner-approved AWS tagging contract locally: provider `default_tags`/`ignore_tags`, data-table `tags`/computed `tags_all`, merge and validation, authoritative drift/import mapping, and locked in-place tag reconciliation. Other resources and lookup data sources do not gain tagging ownership. Examples, generated references, overview, structure, and changelog are updated.
+- Formatting, full `make test`, build, lint with zero issues using `GOLANGCI_LINT_CACHE=/Volumes/Data/cache/awscontrib-tagging-lint`, two identical documentation generations, whitespace checks, independent lifecycle review, and provider/connections/Connect race tests passed. Final review added explicit regression coverage for default removal with omitted tags and known empty `tags_all`, and corrected provider-default diagnostic attribution. No live AWS tests or account calls occurred. M15-T01 is complete locally; the owner requested a PR, prepared on `feat/aws-style-tagging` targeting `main`. No merge or release is authorized.
+- Direct data-table `TagResource`/`UntagResource` support remains a live verification gap: CloudFormation documents mutable tags, but Connect's tagging/IAM resource lists omit data tables. Next operator verification: review this diff, then use an explicitly authorized fixture to exercise tag create/change/removal, default changes, drift, and import. Restricted IAM policies need tag and untag permissions.
 
 - M14-T03 is complete locally and uncommitted on `fix/data-table-default-discovery`. Table refresh now batch-describes defaults for every remote non-primary attribute with explicit empty primary values, including attributes absent from configuration. Exact observed `Value not found.` means absence; other failures or malformed/incomplete replies abort. Remote locks and ordinary record-resource reads are preserved.
 - Full tests, formatting, lint (zero issues), generation with no reference changes, independent focused verification, and an offline SDK serialization probe passed. Additional Read/API-error regression preserves prior defaults and original cause. No agent-run AWS calls were made; corrected provider live behavior remains unverified. Table refresh requires `connect:BatchDescribeDataTableValue` permission. Next actions: review/commit/push the targeted-read changes, then verify normal plan against existing defaults using that build. Missing-item string matching remains an observed-contract limitation.
@@ -70,7 +76,7 @@ Data sources:
 ## Deliberate limitations
 
 - No real AWS fixture or acceptance result exists. All current evidence is mocked, Framework, race, build, lint, and generation verification.
-- Table tags and attribute validation rules are not represented. Post-create tag support is undocumented for data tables, and multiple validation false/zero removals cannot be serialized reliably by the pinned SDK.
+- Table tags are represented by M15. Direct mutation is fixture-free verified but live service behavior remains unverified. Attribute validation rules remain deferred because multiple false/zero removals cannot be serialized reliably by the pinned SDK.
 - Data-table status accepts only `PUBLISHED`; `SAVED` remains contradictory in AWS prose versus the pinned SDK enum and official valid-values section.
 - Changing a table attribute from primary to non-primary replaces the table because the SDK cannot serialize `Primary:false`. Attribute map-key renames are delete/create and can remove values.
 - Record import adopts every remote non-primary cell. Configuration must include every value that should be preserved because a later authoritative plan may delete omitted cells.

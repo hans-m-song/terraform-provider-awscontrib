@@ -34,6 +34,7 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
 │   ├── conns/
 │   │   ├── config.go               AWS SDK v2 configuration
 │   │   ├── client.go               cached service client factory
+│   │   ├── tags.go                 provider tagging configuration data
 │   │   ├── middleware.go           per-attempt Connect scheduling middleware
 │   │   └── scheduler.go            operation pacing and in-flight bound
 │   └── service/
@@ -49,6 +50,7 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
 │           ├── hours_of_operation_override_resource.go
 │           ├── data_table_coordinator.go
 │           ├── data_table_resource.go
+│           ├── data_table_tags.go      tag merge, state mapping, validation, reconciliation
 │           ├── data_table_record_resource.go
 │           └── *_test.go
 ├── examples/

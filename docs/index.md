@@ -23,6 +23,18 @@ terraform {
 provider "awscontrib" {
   profile = "example"
   region  = "ap-southeast-2"
+
+  default_tags {
+    tags = {
+      Environment = "production"
+      ManagedBy   = "Terraform"
+    }
+  }
+
+  ignore_tags {
+    keys         = ["ExternalOwner"]
+    key_prefixes = ["external:"]
+  }
 }
 ```
 
@@ -31,5 +43,23 @@ provider "awscontrib" {
 
 ### Optional
 
+- `default_tags` (Block, Optional) Default tags for supported resources. Currently, only `awscontrib_connect_data_table` consumes these settings. (see [below for nested schema](#nestedblock--default_tags))
+- `ignore_tags` (Block, Optional) Tags matching these keys or prefixes are omitted during refresh for supported resources. Currently, only `awscontrib_connect_data_table` consumes these settings. Do not also configure ignored keys in the resource's `tags`, because omitted refreshed values can produce persistent differences. (see [below for nested schema](#nestedblock--ignore_tags))
 - `profile` (String) AWS shared configuration profile to use.
 - `region` (String) AWS Region to use. When omitted, the AWS SDK resolves the Region from its default configuration chain.
+
+<a id="nestedblock--default_tags"></a>
+### Nested Schema for `default_tags`
+
+Optional:
+
+- `tags` (Map of String) Map of default tag keys and values.
+
+
+<a id="nestedblock--ignore_tags"></a>
+### Nested Schema for `ignore_tags`
+
+Optional:
+
+- `key_prefixes` (Set of String) Tag key prefixes to omit during refresh.
+- `keys` (Set of String) Tag keys to omit during refresh.

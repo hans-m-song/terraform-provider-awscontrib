@@ -3,12 +3,12 @@
 page_title: "awscontrib_connect_data_table Resource - awscontrib"
 subcategory: ""
 description: |-
-  Manages Amazon Connect data-table metadata, the complete set of attributes represented by this resource, and explicit DEFAULT values. Mutations for the same instance and table are serialized within one provider process. Attribute validation rules and tags are not currently represented.
+  Manages Amazon Connect data-table metadata, tags, the complete set of attributes represented by this resource, and explicit DEFAULT values. Mutations for the same instance and table are serialized within one provider process. Attribute validation rules are not currently represented.
 ---
 
 # awscontrib_connect_data_table (Resource)
 
-Manages Amazon Connect data-table metadata, the complete set of attributes represented by this resource, and explicit DEFAULT values. Mutations for the same instance and table are serialized within one provider process. Attribute validation rules and tags are not currently represented.
+Manages Amazon Connect data-table metadata, tags, the complete set of attributes represented by this resource, and explicit DEFAULT values. Mutations for the same instance and table are serialized within one provider process. Attribute validation rules are not currently represented.
 
 ## Example Usage
 
@@ -20,6 +20,11 @@ resource "awscontrib_connect_data_table" "example" {
   time_zone        = "Australia/Brisbane"
   value_lock_level = "VALUE"
   status           = "PUBLISHED"
+
+  tags = {
+    Environment = "staging"
+    Purpose     = "routing"
+  }
 
   attributes = {
     customer_id = {
@@ -61,11 +66,13 @@ resource "awscontrib_connect_data_table" "example" {
 
 - `default_values` (Map of String) Explicit DEFAULT record values keyed by declared non-primary attribute name. Omitting a key means no stored default value.
 - `description` (String) Optional data-table description. Removing it sends an explicit empty description.
+- `tags` (Map of String) Resource-specific tags. Resource tags override provider default tags. Keys ignored by provider ignore_tags and AWS system tags are not managed.
 
 ### Read-Only
 
 - `arn` (String) Data-table ARN.
 - `id` (String) Data-table identifier.
+- `tags_all` (Map of String) All non-system, non-ignored tags applied to the data table, including provider default tags.
 
 <a id="nestedatt--attributes"></a>
 ### Nested Schema for `attributes`

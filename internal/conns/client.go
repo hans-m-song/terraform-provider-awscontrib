@@ -9,6 +9,7 @@ import (
 
 type Client struct {
 	awsConfig aws.Config
+	TagConfig TagConfig
 
 	connectOnce      sync.Once
 	connectClient    *awsconnect.Client

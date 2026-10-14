@@ -2,6 +2,8 @@
 
 ENHANCEMENTS:
 
+* **Tagging:** add provider `default_tags` and `ignore_tags`, plus data-table `tags` and computed `tags_all`, with in-place reconciliation, drift detection, and import discovery. Direct data-table tag mutation remains unverified against AWS.
+
 * **Resource:** make hours-of-operation `override_type` optional. Omitted creation delegates type selection to Amazon Connect and reads the returned type into state; removing configured type retains stored behavior.
 
 ## 0.4.4 (2026-09-24)
