@@ -103,14 +103,17 @@ func TestProviderRegistersConnectResources(t *testing.T) {
 func TestProviderRegistersConnectDataSources(t *testing.T) {
 	p := New("test")()
 	constructors := p.DataSources(context.Background())
-	if len(constructors) != 3 {
-		t.Fatalf("expected three data source constructors, got %d", len(constructors))
-	}
-
 	expectedTypeNames := []string{
 		"awscontrib_connect_phone_number",
 		"awscontrib_connect_contact_flow_module",
 		"awscontrib_connect_data_table",
+		"awscontrib_connect_quick_connects",
+		"awscontrib_connect_routing_profiles",
+		"awscontrib_connect_security_profiles",
+		"awscontrib_connect_users",
+	}
+	if len(constructors) != len(expectedTypeNames) {
+		t.Fatalf("expected %d data source constructors, got %d", len(expectedTypeNames), len(constructors))
 	}
 	for index, constructor := range constructors {
 		if constructor == nil {

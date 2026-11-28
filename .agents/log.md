@@ -334,3 +334,9 @@ Only the main agent edits this file. Record verified decisions, rejected approac
 - An owner-observed Amazon Connect console create payload for a weekly full-day closure on 2026-09-15 used `OverrideType: CLOSED`, `Config.Day: TUESDAY`, start and end `00:00`, and recurrence frequency `WEEKLY` with interval `1`. This corrects the prior assumption that a full-day recurring closure can be represented by an empty configuration.
 - `v0.5.0` must add resource schema versioning and upgrade classifiable `v0.4.x` state without AWS calls. Unclassifiable legacy states must receive actionable diagnostics rather than semantic guesses. State migration cannot rewrite practitioner configuration.
 - Temporary and partial-hour cases plus monthly and yearly recurrence payloads remain evidence gaps; implementation is blocked until the public contract is frozen.
+
+## 2026-11-28 — Plural Connect discovery
+
+The owner selected four plural data sources after confirming upstream singular data sources accept exact names. Tag filters require all pairs. Substring filters use local case-sensitive matching for consistent behavior across Connect fields. Pagination stays internal and results are sorted by Connect ID. Tagged quick-connect queries use SearchQuickConnects, superseding the initial list-only M2 proposal.
+
+The owner accepted M2 and authorized publication as v0.4.9. This patch release preserves the v0.5.0 designation for the proposed hours-override redesign.

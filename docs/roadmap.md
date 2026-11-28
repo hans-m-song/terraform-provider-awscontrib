@@ -211,59 +211,21 @@ Status: Complete.
 - Blockers: none.
 - Parallel boundaries: implementation and tests share one file pair and remain one ownership unit; independent verification follows the implementation checkpoint.
 
-## M2 — Amazon Connect quick-connect discovery
+## M2 — Amazon Connect plural discovery
 
-Goal: provide a plural data source that lists quick connects in an Amazon Connect instance.
+Status: Complete. The owner accepted all four data sources on 2026-11-28. Fixture-free Framework and mock tests cover registration, filtering, pagination, empty results and errors. The release target is v0.4.9.
 
-Status: Proposed.
+| Task | Deliverable | Verification |
+|---|---|---|
+| M2-T01 | Instance-scoped plural schema and filters | Review the schemas and examples for all four data sources. |
+| M2-T02 | Quick-connect discovery | Inspect type filtering, literal name matching and tag searches. |
+| M2-T03 | Examples and generated references | Generate twice and compare output. |
+| M2-T04 | Fixture-free verification | After batch acceptance, cover filtering, complete pagination, errors, empty results, sorting and provider registration. |
+| M2-T05 | Routing profile discovery | Inspect name and tag filters and routing profile summaries. |
+| M2-T06 | Security profile discovery | Inspect name and tag filters and security profile summaries. |
+| M2-T07 | User discovery | Inspect username, first-name, last-name and tag filters and user summaries. |
 
-### M2-T01 — Define the data-source contract
-
-- Goal: implement the decided Terraform-standard plural quick-connect contract in a reviewed schema proposal.
-- Scope: contract and examples; no API implementation.
-- Constraints: distinguish `ListQuickConnects` summary fields from `DescribeQuickConnect` fields; do not duplicate the singular `aws_connect_quick_connect` contract.
-- Acceptance criteria: schema defines required string `instance_id`; optional string `name`; optional enum-validated set `quick_connect_types`; computed list nested attribute `quick_connects` sorted lexicographically by item ID; required computed item `id`; all other API summary fields as computed attributes; no synthetic top-level `id`; complete pagination; and deterministic empty state.
-- Roles: architect, project analyst, main agent.
-- Dependencies: `M0-T01`.
-- Verification gates: contract is checked against the current AWS API and current Terraform Plugin Framework conventions.
-- Blockers: none.
-- Parallel boundaries: API test fixtures may be designed after the output shape is stable.
-
-### M2-T02 — Implement and unit test the data source
-
-- Goal: implement paginated `ListQuickConnects` behavior through a narrow Connect client interface.
-- Scope: schema, configuration, API pagination, mapping, diagnostics, and unit/framework tests.
-- Constraints: never return only the first page; do not call `DescribeQuickConnect` unless separately approved as part of the contract.
-- Acceptance criteria: tests cover one page, multiple pages, API type filters, exact name filtering after pagination, empty results, ordering by ID, nil configuration, and AWS errors.
-- Roles: executor, tester.
-- Dependencies: `M0-T02`, `M0-T03`, `M2-T01`.
-- Verification gates: targeted tests, `make test`, and `make lint` pass.
-- Blockers: none after dependencies.
-- Parallel boundaries: example drafting can proceed against the approved schema; generated documentation waits for compiled schema code.
-
-### M2-T03 — Add examples and generated documentation
-
-- Goal: publish accurate usage and reference documentation.
-- Scope: provider example, data-source example, schema descriptions, generated data-source documentation, and changelog entry if the release process requires one.
-- Constraints: generated reference files are not edited directly.
-- Acceptance criteria: examples use no credentials, explain summary-only results, and generated files are reproducible.
-- Roles: executor, scribe, tester.
-- Dependencies: `M2-T02`.
-- Verification gates: `make generate` followed by a clean second generation; example formatting passes.
-- Blockers: none after implementation.
-- Parallel boundaries: maintained project documentation may be updated separately from generated reference output.
-
-### M2-T04 — Complete fixture-free verification
-
-- Goal: establish the strongest repeatable verification possible without real Amazon Connect fixtures.
-- Scope: mocked AWS client tests, Framework provider/data-source tests, build, lint, and reproducible documentation generation.
-- Constraints: do not fabricate an acceptance-test result or require personal AWS infrastructure.
-- Acceptance criteria: tests prove request filters, complete pagination, post-pagination name filtering, deterministic ordering, empty results, diagnostics, and provider configuration wiring. The release notes disclose that real-AWS integration was not automatically verified.
-- Roles: tester, main agent.
-- Dependencies: `M2-T02`, `M2-T03`.
-- Verification gates: full unit/framework suite, lint, build, and generated-diff check. A separately authorized `TF_ACC` smoke test is supplementary, not required.
-- Blockers: none for fixture-free verification.
-- Parallel boundaries: an optional real-AWS smoke-test procedure may be documented independently, but no stable fixture is assumed.
+The four queries use optional exact tag pairs, case-sensitive literal substring filters, complete internal pagination, and results sorted by remote ID. See [the discovery contract](overview.md#connect-discovery). Existing upstream singular lookups cover exact names and IDs. The batch depends on the existing provider registration and shared Connect client.
 
 ## M3 — Initial release readiness
 

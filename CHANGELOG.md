@@ -1,8 +1,20 @@
 ## Unreleased
 
+## 0.4.9 (2026-11-28)
+
+FEATURES:
+
+* **Data sources:** discover Connect quick connects, routing profiles, security profiles, and users with tag and substring filters and automatic pagination.
+
+## 0.4.8 (2026-10-14)
+
 ENHANCEMENTS:
 
 * **Tagging:** add provider `default_tags` and `ignore_tags`, plus data-table `tags` and computed `tags_all`, with in-place reconciliation, drift detection, and import discovery. Direct data-table tag mutation remains unverified against AWS.
+
+## 0.4.5 (2026-10-06)
+
+ENHANCEMENTS:
 
 * **Resource:** make hours-of-operation `override_type` optional. Omitted creation delegates type selection to Amazon Connect and reads the returned type into state; removing configured type retains stored behavior.
 

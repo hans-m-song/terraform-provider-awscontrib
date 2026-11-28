@@ -18,11 +18,11 @@
 └── terraform-registry-manifest.json
 ```
 
-The implemented packages follow the provider, connection, and service boundaries below. Plural quick-connect discovery remains planned separately as milestone `M2`.
+The implemented packages follow the provider, connection, and service boundaries below. Milestone M2 adds four plural discovery data sources.
 
 ## Implemented and planned layout
 
-Registered lifecycle and lookup paths are implemented; the path marked `planned M2` is not:
+Registered lifecycle and lookup paths include:
 
 ```text
 .
@@ -43,7 +43,10 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
 │           ├── coordinator.go      provider-local queue-keyed mutation locks
 │           ├── queue_quick_connect_associations_resource.go
 │           ├── queue_quick_connect_associations_resource_test.go
-│           ├── quick_connects_data_source.go       planned M2
+│           ├── quick_connects_data_source.go
+│           ├── profiles_data_source.go
+│           ├── users_data_source.go
+│           ├── discovery_tags.go    Connect search tag conditions
 │           ├── phone_number_data_source.go
 │           ├── contact_flow_module_data_source.go
 │           ├── data_table_data_source.go
@@ -56,7 +59,7 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
 ├── examples/
 │   ├── provider/provider.tf
 │   ├── data-sources/
-│   │   └── awscontrib_connect_quick_connects/data-source.tf  planned M2
+│   │   └── awscontrib_connect_quick_connects/data-source.tf
 │   └── resources/
 │       └── awscontrib_connect_queue_quick_connect_associations/
 ├── docs/
@@ -69,7 +72,7 @@ Registered lifecycle and lookup paths are implemented; the path marked `planned 
     └── handoff.md                  session continuity
 ```
 
-Provider, lifecycle-resource, and exact-lookup names are implemented. Only the milestone `M2` discovery path remains provisional until that implementation begins.
+Provider, lifecycle-resource, and exact-lookup names are implemented. Plural discovery uses explicit registration in the same service package.
 
 ## Dependency boundaries
 
@@ -141,11 +144,7 @@ Scheduling is process-local. It does not coordinate provider aliases that Terraf
 
 ## Data-source test boundary
 
-Define the smallest interface needed by the data source, structurally equivalent to:
-
-```text
-ListQuickConnects(context, input, options...) -> output, error
-```
+Give each discovery data source a narrow interface for its list or search operations so pagination, tag filters, and AWS errors can be exercised with fake clients.
 
 Use Framework nested attributes rather than nested blocks for the new schema. Model `quick_connect_types` as an optional set attribute and `quick_connects` as a computed list nested attribute.
 
@@ -155,7 +154,7 @@ Unit tests should supply a fake implementation and cover:
 - absent and present `NextToken`;
 - no results;
 - each supported quick-connect type and propagation of the API filter;
-- exact name filtering after all pages are collected;
+- case-sensitive substring matching across all pages and AND-combined tag filters;
 - lexicographic ordering by quick-connect ID regardless of API response order;
 - AWS errors converted to actionable diagnostics.
 

@@ -4,7 +4,7 @@
 
 This repository is intended to become `terraform-provider-awscontrib`, published as `registry.terraform.io/hans-m-song/awscontrib`: a small Terraform provider for AWS capabilities that are not available in the HashiCorp AWS or AWS Cloud Control providers.
 
-The first implemented capability is the Amazon Connect queue/quick-connect association resource. A plural quick-connect discovery data source remains planned as milestone `M2`.
+The first implemented capability is the Amazon Connect queue/quick-connect association resource. Milestone `M2` covers plural quick-connect, routing profile, security profile, and user discovery.
 
 ## Required reading
 
@@ -57,7 +57,7 @@ main -> provider -> conns
 - Data sources must paginate list APIs until `NextToken` is empty unless the schema explicitly exposes pagination.
 - The queue/quick-connect associations resource owns only its declared additive subset, not the queue's complete association set. It batches mutations in groups of at most 50 IDs, preserves unrelated associations, and rejects overlapping ownership as unsupported. Mutations serialize per instance/queue within one provider process; never claim cross-process serialization.
 - Plural quick-connect results are represented as a list sorted by quick-connect ID. Do not rely on AWS response order.
-- The plural quick-connect data source uses `ListQuickConnects` only. Apply quick-connect-type filters through the API and exact name filtering client-side after complete pagination.
+- Use ListQuickConnects for untagged queries and SearchQuickConnects for tag filters. Apply type filtering locally on search results. All plural substring filters use literal, case-sensitive matching.
 - Use a set for unordered unique quick-connect-type filter values and a computed list nested attribute for ordered results.
 - Do not add a synthetic data-source-level `id` when no meaningful remote identity exists. Each returned quick connect must expose its real `id`.
 - Define ordering and uniqueness semantics before choosing list or set attributes.

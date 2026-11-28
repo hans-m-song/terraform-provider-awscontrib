@@ -2,9 +2,13 @@
 
 ## Updated
 
-2026-10-13, Australia/Brisbane.
+2026-11-28, Australia/Brisbane.
 
-## Latest review
+## Current discovery batch
+
+The owner accepted the four plural Connect data sources on 2026-11-28 and authorized v0.4.9. M2-T04 fixture-free tests cover all four Framework Read paths, pagination, error handling, type and tag filters, empty results, nullable fields and registration. Full unit tests, focused race checks, build, lint and reproducible reference generation passed. No live AWS verification. Release via the v0.4.9 tag and verify the GitHub artifacts and Terraform Registry listing.
+
+## Previous review
 
 - PR preparation on 2026-10-13: tagging implementation committed as `a6f11ae` and pushed to `feat/aws-style-tagging`. GitHub connector PR creation returned HTTP 403 `Resource not accessible by integration`; no PR was created. Prepared body: `/Volumes/Data/tmp/awscontrib-tagging-pr.md`. Next action: restore connector PR permissions or obtain an explicit exception to the owner's prohibition on `gh`, then open against `main`. Do not merge or release.
 
@@ -111,5 +115,5 @@ Independent verification passed all feature-level tests and race checks. Its def
 - `data_tables_awscontrib.tf` is a parallel conversion of the owner-supplied, untracked `data_tables.tf`; the source file was not modified. `docs/runbooks/migrate-data-tables-to-awscontrib.md` describes the migration gates and rollback.
 - Record import is now implemented, removing the provider-side migration blocker. The migration remains an operator-controlled state transition: discover each stable record ID, import every table and record, and approve all targeted plans before removing any old AWSCC state address.
 - GitHub tag tests and the signed release workflow succeeded; GitHub release assets include checksums and a detached signature. Terraform Registry listed `0.4.4` on 2026-09-24.
-- If feature work continues, `M2` plural quick-connect discovery remains the next proposed milestone.
+- M2 discovery implementation and fixture-free verification are complete.
 - `M8` resource-name exposure is complete without source changes. Hours overrides and data tables already expose AWS names; association edges and records have no intrinsic AWS resource names and remain unnamed.

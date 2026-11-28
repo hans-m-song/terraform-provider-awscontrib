@@ -245,6 +245,10 @@ func New(version string) func() provider.Provider {
 				connectservice.PhoneNumberDataSourceFactory(),
 				connectservice.ContactFlowModuleDataSourceFactory(),
 				connectservice.DataTableDataSourceFactory(),
+				connectservice.QuickConnectsDataSourceFactory(),
+				connectservice.RoutingProfilesDataSourceFactory(),
+				connectservice.SecurityProfilesDataSourceFactory(),
+				connectservice.UsersDataSourceFactory(),
 			},
 		}
 	}

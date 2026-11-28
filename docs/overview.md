@@ -4,7 +4,7 @@
 
 `terraform-provider-awscontrib` is planned as a focused provider for miscellaneous AWS capabilities that are absent from the HashiCorp AWS and AWS Cloud Control providers. Its publication address is `registry.terraform.io/hans-m-song/awscontrib`, its Terraform type name is `awscontrib`, and its Go module is `github.com/hans-m-song/terraform-provider-awscontrib`.
 
-The first implemented feature was an Amazon Connect queue/quick-connect association resource. The provider now also includes in-place association reconciliation, exact phone-number and contact-flow-module lookups, standalone hours-of-operation overrides, direct data-table lifecycle management, and data-table lookup by ID or name. A plural quick-connect discovery data source remains a separate proposed milestone.
+The first implemented feature was an Amazon Connect queue/quick-connect association resource. The provider now also includes in-place association reconciliation, exact phone-number and contact-flow-module lookups, standalone hours-of-operation overrides, direct data-table lifecycle management, and data-table lookup by ID or name. Milestone M2 adds plural discovery for quick connects, routing profiles, security profiles, and users.
 
 ## Current state
 
@@ -15,7 +15,7 @@ As of 2026-09-24, the provider bootstrap, the approved Amazon Connect lifecycle 
 - provider configuration uses AWS SDK for Go v2 with optional `profile` and `region`; as of 2026-10-13, provider `default_tags` and `ignore_tags` blocks also carry resource tagging settings;
 - `internal/conns` owns AWS configuration and client construction;
 - one configured provider process reuses one Amazon Connect SDK client and paces every physical request attempt by API operation;
-- `internal/service/connect` owns four resources and three lookup data sources;
+- `internal/service/connect` owns four resources, three singular lookup data sources, and four plural discovery data sources;
 - scaffold resources, data sources, actions, functions, and ephemeral resources have been removed;
 - registered resources manage queue/quick-connect associations, hours-of-operation overrides, combined data tables, and composite-key data-table records;
 - stable computed data-table and record identities are preserved during in-place planning so dependent records are not falsely replaced;
@@ -135,45 +135,19 @@ AWS system tags and keys matching `ignore_tags` are preserved. Do not also confi
 
 Tag operations require `connect:TagResource` and `connect:UntagResource` permissions. [CloudFormation documents in-place data-table tag updates](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-connect-datatable.html), while Connect's tagging support matrix and IAM resource lists omit data tables. Direct mutation through the [tag](https://docs.aws.amazon.com/connect/latest/APIReference/API_TagResource.html) and [untag](https://docs.aws.amazon.com/connect/latest/APIReference/API_UntagResource.html) APIs is implemented from their ARN-based contracts; live data-table behavior remains unverified. The public convention follows [HashiCorp's tagging guide](https://github.com/hashicorp/terraform-provider-aws/blob/main/docs/resource-tagging.md).
 
-## Planned discovery contract
+## Connect discovery
 
-The proposed data source is plural rather than a replacement for the existing singular AWS provider data source:
+Each plural data source requires an instance ID and returns a list of summaries sorted by Connect ID. An empty list means no matches. The provider follows continuation tokens internally and reports an error if a page fails. There is no synthetic query ID.
 
-```text
-Amazon Connect instance
-        |
-        | ListQuickConnects, paginate NextToken
-        v
-quick-connect summaries
-  - ID
-  - ARN, when returned
-  - name, when returned
-  - type, when returned
-  - last-modified metadata, when returned
-```
+| Data source suffix | Optional filters besides `tags` |
+|---|---|
+| `connect_quick_connects` | `name_contains`, `quick_connect_types` |
+| `connect_routing_profiles`, `connect_security_profiles` | `name_contains` |
+| `connect_users` | `username_contains`, `first_name_contains`, `last_name_contains` |
 
-Verified API behavior:
+Substring comparisons are literal and case-sensitive. Filters combine with AND. A quick connect may match any selected type. An email-shaped login is a username. A nonempty tag map requires every specified key/value pair and selects the AWS search API. Omitting tags or supplying an empty map imposes no tag constraint. Quick connects and profiles use their list APIs for untagged queries. Users use SearchUsers for all queries. Provider resource tagging defaults and ignore rules do not modify discovery filters.
 
-- `instance_id` accepts an Amazon Connect instance ID or ARN and is required.
-- `quick_connect_types` accepts at most four values from `USER`, `QUEUE`, `PHONE_NUMBER`, and `FLOW`.
-- `max_results` controls page size, not the total logical result count; the API defaults to 100 and permits 1 through 1000.
-- `NextToken` indicates more pages.
-- `ListQuickConnects` returns summary objects, not descriptions or nested quick-connect configuration.
-- results are exposed as a list sorted lexicographically by quick-connect ID for deterministic Terraform state;
-- `quick_connect_types` is passed to `ListQuickConnects` as a server-side filter;
-- optional exact `name` filtering is applied client-side after every API page is collected because `ListQuickConnects` has no name parameter;
-- `SearchQuickConnects` is outside the initial contract.
-
-The schema follows current Terraform conventions:
-
-- `instance_id`: required string;
-- `name`: optional string for exact client-side matching;
-- `quick_connect_types`: optional set of validated enum strings because filters are unordered and unique;
-- `quick_connects`: computed list nested attribute, sorted by item `id`;
-- quick-connect item `id`: required computed string;
-- ARN, name, type, last-modified region, and last-modified time: computed when returned by `ListQuickConnects`.
-
-Do not add a synthetic data-source-level `id`: the query has no separate remote identity, and modern Plugin Framework testing does not require one. The Terraform data-source address identifies the configured query while each returned object exposes its AWS quick-connect ID.
+When granting IAM access, check the corresponding list or search action and its dependent actions in the [Connect service authorization reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_connect.html). Adding a tag filter can switch a query from a list operation to a search operation.
 
 ## Provider precedents
 
